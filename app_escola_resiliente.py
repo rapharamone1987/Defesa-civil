@@ -11,51 +11,70 @@ st.set_page_config(
     layout="wide"
 )
 
-# 2. Estilização CSS de Alto Contraste (Fontes Escuras e Leitura Perfeita)
+# 2. Estilização CSS de Alto Contraste (Inviolável contra Dark Mode de celulares)
 st.markdown("""
     <style>
-    /* Força cores escuras em todos os textos para garantir legibilidade */
-    div[data-testid="stMarkdownContainer"] p, 
-    div[data-testid="stMarkdownContainer"] li,
-    div[data-testid="stMarkdownContainer"] h1,
-    div[data-testid="stMarkdownContainer"] h2,
-    div[data-testid="stMarkdownContainer"] h3,
-    div[data-testid="stMarkdownContainer"] h4 {
-        color: #0f172a !important;
-        word-wrap: break-word !important;
-        white-space: normal !important;
+    /* Força Fundo Claro Global e Remove Conflito do Dark Mode */
+    .stApp {
+        background-color: #f8fafc !important;
     }
     
+    /* Títulos Principais (Brancos ou Escuros sobre contraste) */
+    h1, h2, h3, h4, h5, h6, 
+    .stMarkdown h1, .stMarkdown h2, .stMarkdown h3, .stMarkdown h4 {
+        color: #0f172a !important;
+        font-weight: 800 !important;
+    }
+
+    /* Subtítulos e parágrafos nativos do Streamlit */
+    .stCaption, p, span, label, div[data-testid="stMarkdownContainer"] p {
+        color: #334155 !important;
+        font-weight: 500 !important;
+    }
+
+    /* Ajustes no File Uploader */
+    div[data-testid="stFileUploader"] {
+        background-color: #ffffff !important;
+        border: 2px dashed #94a3b8 !important;
+        border-radius: 8px !important;
+        padding: 10px !important;
+    }
+    div[data-testid="stFileUploader"] span, div[data-testid="stFileUploader"] small {
+        color: #1e293b !important;
+    }
+
     /* Cartões de Alto Contraste */
     .card-alerta {
-        background-color: #fef2f2 !important;
-        border: 2px solid #dc2626 !important;
-        border-left: 8px solid #dc2626 !important;
-        padding: 16px !important;
-        border-radius: 8px !important;
-        margin-bottom: 12px !important;
+        background-color: #ffffff !important;
+        border: 2px solid #ef4444 !important;
+        border-left: 10px solid #ef4444 !important;
+        padding: 18px !important;
+        border-radius: 10px !important;
+        margin-bottom: 14px !important;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05) !important;
     }
     
     .card-seguro {
-        background-color: #f0fdf4 !important;
-        border: 2px solid #16a34a !important;
-        border-left: 8px solid #16a34a !important;
-        padding: 16px !important;
-        border-radius: 8px !important;
-        margin-bottom: 12px !important;
+        background-color: #ffffff !important;
+        border: 2px solid #22c55e !important;
+        border-left: 10px solid #22c55e !important;
+        padding: 18px !important;
+        border-radius: 10px !important;
+        margin-bottom: 14px !important;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05) !important;
     }
     
     .card-alerta h4, .card-seguro h4 {
         color: #0f172a !important;
         margin-top: 0px !important;
+        font-size: 18px !important;
         font-weight: 800 !important;
     }
     
     .card-alerta li, .card-seguro li, .card-alerta p, .card-seguro p {
         color: #1e293b !important;
         font-size: 15px !important;
-        font-weight: 500 !important;
-        line-height: 1.5 !important;
+        line-height: 1.6 !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -116,7 +135,6 @@ def analisar_lote_escola(imagens_list, nome_escola, municipio, observacoes_gerai
         }
     ]
 
-    # Anexa todas as imagens no payload da API
     for img_b64 in imagens_list:
         content_payload.append({
             "type": "image_url",
@@ -157,10 +175,9 @@ else:
     st.sidebar.error("🤖 Groq Vision IA: **Configure a GROQ_API_KEY**")
 
 # 6. Área Principal
-st.subheader("📸 Registre Todos os Ambientes da Escola (Upload Simultâneo)")
+st.subheader("📸 Registre Todos os Ambientes da Escola")
 st.caption("Selecione fotos de salas de aula, corredores, ginásio, pátio externo e planta baixa de uma só vez.")
 
-# Upload Múltiplo
 arquivos_uploaded = st.file_uploader(
     "Carregue as fotos dos ambientes da escola (Selecione vários arquivos JPG/PNG):", 
     type=["jpg", "png", "jpeg"],
@@ -181,7 +198,6 @@ st.subheader("🛡️ Laudo Técnico Unificado de Resiliência & Zonas de Abrigo
 if arquivos_uploaded:
     if st.button("🚨 Processar Auditoria Completa da Escola (IA Multimodal)", type="primary"):
         with st.spinner(f"Analisando lote de {len(arquivos_uploaded)} fotos e mapeando zonas de abrigo com IA Vision..."):
-            # Converte todas as fotos para Base64
             lote_b64 = [encode_image(f.getvalue()) for f in arquivos_uploaded]
             laudo_completo = analisar_lote_escola(lote_b64, nome_escola, municipio, obs_gerais)
             st.session_state["laudo_unificado"] = laudo_completo
@@ -212,7 +228,7 @@ with c1:
 with c2:
     st.markdown("""
     <div class="card-alerta">
-        <h4>🌊 Enxurradas Rápida</h4>
+        <h4>🌊 Enxurradas Rápidas</h4>
         <ul>
             <li><b>Evitar:</b> Térreo, pátios rebaixados e subsolos.</li>
             <li><b>Ação:</b> Evacuação vertical imediata para o 2º pavimento.</li>
