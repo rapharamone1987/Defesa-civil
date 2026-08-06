@@ -175,7 +175,7 @@ if arquivos_uploaded:
     cols = st.columns(min(len(arquivos_uploaded), 4))
     for i, file in enumerate(arquivos_uploaded):
         with cols[i % 4]:
-            st.image(file, caption=f"Foto {i+1}: {file.name}", use_column_width=True)
+            st.image(file, caption=f"Foto {i+1}: {file.name}", use_container_width=True)
 
 st.markdown("---")
 
