@@ -101,7 +101,7 @@ def otimizar_e_converter_b64(file_bytes, max_dim=1024, qualidade=75):
         # Fallback para a conversão direta caso a compressão falhe
         return base64.b64encode(file_bytes).decode('utf-8')
 
-# 4. Motor de Visão Computacional para Múltiplas Imagens (Groq Llama 3.2 90B Vision)
+# 4. Motor de Visão Computacional para Múltiplas Imagens (Groq Qwen 3.6 27B Vision)
 def analisar_lote_escola(imagens_b64_list, nome_escola, municipio, observacoes_gerais):
     if not API_KEY_GROQ:
         return "⚠️ Chave `GROQ_API_KEY` não foi encontrada nos Secrets do Streamlit."
@@ -154,7 +154,7 @@ def analisar_lote_escola(imagens_b64_list, nome_escola, municipio, observacoes_g
             {"role": "system", "content": prompt_sistema},
             {"role": "user", "content": content_payload}
         ],
-        "model": "llama-3.2-90b-vision-preview",
+        "model": "qwen/qwen3.6-27b",
         "temperature": 0.2
     }
 
@@ -254,4 +254,3 @@ with c3:
         </ul>
     </div>
     """, unsafe_allow_html=True)
-    
