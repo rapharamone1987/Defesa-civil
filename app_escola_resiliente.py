@@ -16,6 +16,7 @@ st.set_page_config(
 # 2. Estilização CSS Totalmente Adaptável (Light & Dark Mode Nativo)
 st.markdown("""
     <style>
+    /* Respeita o tema do usuário usando variáveis nativas do Streamlit */
     h1, h2, h3, h4, h5, h6, 
     .stMarkdown h1, .stMarkdown h2, .stMarkdown h3, .stMarkdown h4,
     .stMarkdown p, .stMarkdown li, .stCaption, span, label {
@@ -24,6 +25,7 @@ st.markdown("""
         white-space: normal !important;
     }
 
+    /* File Uploader Adaptável */
     div[data-testid="stFileUploader"] {
         background-color: var(--secondary-background-color) !important;
         border: 2px dashed var(--text-color) !important;
@@ -31,6 +33,7 @@ st.markdown("""
         padding: 10px !important;
     }
 
+    /* Cartões Inteligentes (Dinâmicos conforme o Tema) */
     .card-alerta {
         background-color: var(--secondary-background-color) !important;
         border: 2px solid #ef4444 !important;
@@ -98,7 +101,7 @@ def otimizar_e_converter_b64(file_bytes, max_dim=1024, qualidade=75):
         # Fallback para a conversão direta caso a compressão falhe
         return base64.b64encode(file_bytes).decode('utf-8')
 
-# 4. Motor de Visão Computacional para Múltiplas Imagens (Groq Llama 3.2 Vision)
+# 4. Motor de Visão Computacional para Múltiplas Imagens (Groq Llama 3.2 90B Vision)
 def analisar_lote_escola(imagens_b64_list, nome_escola, municipio, observacoes_gerais):
     if not API_KEY_GROQ:
         return "⚠️ Chave `GROQ_API_KEY` não foi encontrada nos Secrets do Streamlit."
@@ -151,7 +154,7 @@ def analisar_lote_escola(imagens_b64_list, nome_escola, municipio, observacoes_g
             {"role": "system", "content": prompt_sistema},
             {"role": "user", "content": content_payload}
         ],
-        "model": "llama-3.2-11b-vision-preview",
+        "model": "llama-3.2-90b-vision-preview",
         "temperature": 0.2
     }
 
@@ -201,7 +204,6 @@ st.subheader("🛡️ Laudo Técnico Unificado de Resiliência & Zonas de Abrigo
 if arquivos_uploaded:
     if st.button("🚨 Processar Auditoria Completa da Escola (IA Multimodal)", type="primary"):
         with st.spinner(f"Otimizando {len(arquivos_uploaded)} imagens e enviando lote para auditoria com IA Vision..."):
-            # Otimiza e compacta cada imagem antes de enviar à API
             lote_b64 = [otimizar_e_converter_b64(f.getvalue()) for f in arquivos_uploaded]
             laudo_completo = analisar_lote_escola(lote_b64, nome_escola, municipio, obs_gerais)
             st.session_state["laudo_unificado"] = laudo_completo
