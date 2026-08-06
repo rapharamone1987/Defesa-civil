@@ -3,6 +3,8 @@ import pandas as pd
 import requests
 import base64
 import os
+from PIL import Image
+import io
 
 # 1. Configuração da Página
 st.set_page_config(
@@ -14,7 +16,6 @@ st.set_page_config(
 # 2. Estilização CSS Totalmente Adaptável (Light & Dark Mode Nativo)
 st.markdown("""
     <style>
-    /* Respeita o tema do usuário usando variáveis nativas do Streamlit */
     h1, h2, h3, h4, h5, h6, 
     .stMarkdown h1, .stMarkdown h2, .stMarkdown h3, .stMarkdown h4,
     .stMarkdown p, .stMarkdown li, .stCaption, span, label {
@@ -23,7 +24,6 @@ st.markdown("""
         white-space: normal !important;
     }
 
-    /* File Uploader Adaptável */
     div[data-testid="stFileUploader"] {
         background-color: var(--secondary-background-color) !important;
         border: 2px dashed var(--text-color) !important;
@@ -31,7 +31,6 @@ st.markdown("""
         padding: 10px !important;
     }
 
-    /* Cartões Inteligentes (Dinâmicos conforme o Tema) */
     .card-alerta {
         background-color: var(--secondary-background-color) !important;
         border: 2px solid #ef4444 !important;
@@ -78,11 +77,29 @@ def obter_groq_api_key():
 
 API_KEY_GROQ = obter_groq_api_key()
 
-def encode_image(file_bytes):
-    return base64.b64encode(file_bytes).decode('utf-8')
+# FUNÇÃO COMPACTADORA DE IMAGEM (Evita HTTP 413)
+def otimizar_e_converter_b64(file_bytes, max_dim=1024, qualidade=75):
+    try:
+        img = Image.open(io.BytesIO(file_bytes))
+        
+        # Converte para RGB se estiver em RGBA/PNG
+        if img.mode in ("RGBA", "P"):
+            img = img.convert("RGB")
+            
+        # Redimensiona mantendo a proporção se for maior que max_dim
+        img.thumbnail((max_dim, max_dim))
+        
+        # Salva em memória comprimido como JPEG
+        buffer = io.BytesIO()
+        img.save(buffer, format="JPEG", quality=qualidade)
+        
+        return base64.b64encode(buffer.getvalue()).decode('utf-8')
+    except Exception:
+        # Fallback para a conversão direta caso a compressão falhe
+        return base64.b64encode(file_bytes).decode('utf-8')
 
 # 4. Motor de Visão Computacional para Múltiplas Imagens (Groq Llama 3.2 Vision)
-def analisar_lote_escola(imagens_list, nome_escola, municipio, observacoes_gerais):
+def analisar_lote_escola(imagens_b64_list, nome_escola, municipio, observacoes_gerais):
     if not API_KEY_GROQ:
         return "⚠️ Chave `GROQ_API_KEY` não foi encontrada nos Secrets do Streamlit."
 
@@ -117,11 +134,11 @@ def analisar_lote_escola(imagens_list, nome_escola, municipio, observacoes_gerai
     content_payload = [
         {
             "type": "text", 
-            "text": f"Escola: '{nome_escola}' ({municipio}/RS).\nObservações Adicionais do Gestor: '{observacoes_gerais}'.\nAnalise o conjunto de {len(imagens_list)} fotos anexadas e gere o laudo completo de resiliência."
+            "text": f"Escola: '{nome_escola}' ({municipio}/RS).\nObservações Adicionais do Gestor: '{observacoes_gerais}'.\nAnalise o conjunto de {len(imagens_b64_list)} fotos otimizadas anexadas e gere o laudo completo de resiliência."
         }
     ]
 
-    for img_b64 in imagens_list:
+    for img_b64 in imagens_b64_list:
         content_payload.append({
             "type": "image_url",
             "image_url": {
@@ -139,7 +156,7 @@ def analisar_lote_escola(imagens_list, nome_escola, municipio, observacoes_gerai
     }
 
     try:
-        res = requests.post(url, json=payload, headers=headers, timeout=30)
+        res = requests.post(url, json=payload, headers=headers, timeout=35)
         if res.status_code == 200:
             return res.json()['choices'][0]['message']['content']
         else:
@@ -183,8 +200,9 @@ st.subheader("🛡️ Laudo Técnico Unificado de Resiliência & Zonas de Abrigo
 
 if arquivos_uploaded:
     if st.button("🚨 Processar Auditoria Completa da Escola (IA Multimodal)", type="primary"):
-        with st.spinner(f"Analisando lote de {len(arquivos_uploaded)} fotos e mapeando zonas de abrigo com IA Vision..."):
-            lote_b64 = [encode_image(f.getvalue()) for f in arquivos_uploaded]
+        with st.spinner(f"Otimizando {len(arquivos_uploaded)} imagens e enviando lote para auditoria com IA Vision..."):
+            # Otimiza e compacta cada imagem antes de enviar à API
+            lote_b64 = [otimizar_e_converter_b64(f.getvalue()) for f in arquivos_uploaded]
             laudo_completo = analisar_lote_escola(lote_b64, nome_escola, municipio, obs_gerais)
             st.session_state["laudo_unificado"] = laudo_completo
 
@@ -234,3 +252,4 @@ with c3:
         </ul>
     </div>
     """, unsafe_allow_html=True)
+    
