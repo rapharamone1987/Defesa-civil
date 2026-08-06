@@ -1,4 +1,4 @@
-import streamlit as st
+ import streamlit as st
 import pandas as pd
 import requests
 import base64
@@ -11,68 +11,54 @@ st.set_page_config(
     layout="wide"
 )
 
-# 2. Estilização CSS de Alto Contraste (Inviolável contra Dark Mode de celulares)
+# 2. Estilização CSS Totalmente Adaptável (Light & Dark Mode Nativo)
 st.markdown("""
     <style>
-    /* Força Fundo Claro Global e Remove Conflito do Dark Mode */
-    .stApp {
-        background-color: #f8fafc !important;
-    }
-    
-    /* Títulos Principais (Brancos ou Escuros sobre contraste) */
+    /* Respeita o tema do usuário usando variáveis nativas do Streamlit */
     h1, h2, h3, h4, h5, h6, 
-    .stMarkdown h1, .stMarkdown h2, .stMarkdown h3, .stMarkdown h4 {
-        color: #0f172a !important;
-        font-weight: 800 !important;
+    .stMarkdown h1, .stMarkdown h2, .stMarkdown h3, .stMarkdown h4,
+    .stMarkdown p, .stMarkdown li, .stCaption, span, label {
+        color: var(--text-color) !important;
+        word-wrap: break-word !important;
+        white-space: normal !important;
     }
 
-    /* Subtítulos e parágrafos nativos do Streamlit */
-    .stCaption, p, span, label, div[data-testid="stMarkdownContainer"] p {
-        color: #334155 !important;
-        font-weight: 500 !important;
-    }
-
-    /* Ajustes no File Uploader */
+    /* File Uploader Adaptável */
     div[data-testid="stFileUploader"] {
-        background-color: #ffffff !important;
-        border: 2px dashed #94a3b8 !important;
+        background-color: var(--secondary-background-color) !important;
+        border: 2px dashed var(--text-color) !important;
         border-radius: 8px !important;
         padding: 10px !important;
     }
-    div[data-testid="stFileUploader"] span, div[data-testid="stFileUploader"] small {
-        color: #1e293b !important;
-    }
 
-    /* Cartões de Alto Contraste */
+    /* Cartões Inteligentes (Dinâmicos conforme o Tema) */
     .card-alerta {
-        background-color: #ffffff !important;
+        background-color: var(--secondary-background-color) !important;
         border: 2px solid #ef4444 !important;
-        border-left: 10px solid #ef4444 !important;
+        border-left: 8px solid #ef4444 !important;
         padding: 18px !important;
         border-radius: 10px !important;
         margin-bottom: 14px !important;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05) !important;
     }
     
     .card-seguro {
-        background-color: #ffffff !important;
+        background-color: var(--secondary-background-color) !important;
         border: 2px solid #22c55e !important;
-        border-left: 10px solid #22c55e !important;
+        border-left: 8px solid #22c55e !important;
         padding: 18px !important;
         border-radius: 10px !important;
         margin-bottom: 14px !important;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05) !important;
     }
     
     .card-alerta h4, .card-seguro h4 {
-        color: #0f172a !important;
+        color: var(--text-color) !important;
         margin-top: 0px !important;
         font-size: 18px !important;
         font-weight: 800 !important;
     }
     
     .card-alerta li, .card-seguro li, .card-alerta p, .card-seguro p {
-        color: #1e293b !important;
+        color: var(--text-color) !important;
         font-size: 15px !important;
         line-height: 1.6 !important;
     }
@@ -209,7 +195,7 @@ else:
 
 st.markdown("---")
 
-# 7. Guia Rápido com Fontes Escuras
+# 7. Guia Rápido com Cores Adaptáveis
 st.subheader("🚨 Guia de Diretrizes Rápidas da Defesa Civil")
 c1, c2, c3 = st.columns(3)
 
@@ -248,4 +234,3 @@ with c3:
         </ul>
     </div>
     """, unsafe_allow_html=True)
-    
