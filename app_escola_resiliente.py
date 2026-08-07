@@ -3,23 +3,24 @@ import pandas as pd
 import requests
 import base64
 import os
+import re
 from PIL import Image, ImageOps
 import io
 
-# ReportLab para geração do PDF com o tema e fontes oficiais
+# ReportLab para geração do PDF Oficial com Imagens e Mapa
 from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable, Image as RLImage
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 
 # 1. Configuração da Página
 st.set_page_config(
-    page_title="Escola Segura — Defesa Civil",
+    page_title="Escola Segura — Defesa Civil RS",
     page_icon="🛡️",
     layout="wide"
 )
 
-# 2. Estilização CSS Adaptável (Dark & Light Mode Nativo)
+# 2. CSS Adaptável
 st.markdown("""
     <style>
     h1, h2, h3, h4, h5, h6, 
@@ -81,13 +82,13 @@ def otimizar_e_corrigir_orientacao(file_bytes, max_dim=1024, qualidade=80):
         buffer = io.BytesIO()
         img.save(buffer, format="JPEG", quality=qualidade)
         b64_str = base64.b64encode(buffer.getvalue()).decode('utf-8')
-        return img, b64_str
+        return img, b64_str, buffer.getvalue()
     except Exception:
         img_raw = Image.open(io.BytesIO(file_bytes))
         b64_raw = base64.b64encode(file_bytes).decode('utf-8')
-        return img_raw, b64_raw
+        return img_raw, b64_raw, file_bytes
 
-# 5. Geocodificação Exata com Cache Dinâmico
+# 5. Geocodificação Exata
 @st.cache_data(ttl=600)
 def obter_detalhes_geograficos_exatos(lat, lon):
     detalhes = {
@@ -117,8 +118,26 @@ def obter_detalhes_geograficos_exatos(lat, lon):
         
     return detalhes
 
-# 6. GERADOR DE PDF COM FORMATADORES E FONTES REFINADAS (Estilo Oficial RS)
-def gerar_pdf_estilo_oficial_rs(nome_escola, municipio, dados_geo, laudo_texto):
+# Gerador do Mapa Estático em Imagem para o PDF
+def gerar_imagem_mapa(lat, lon):
+    try:
+        url = f"https://static-maps.yandex.ru/1.x/?lang=pt_BR&ll={lon},{lat}&z=15&l=map&pt={lon},{lat},pm2rdm"
+        res = requests.get(url, timeout=5)
+        if res.status_code == 200:
+            return res.content
+    except Exception:
+        pass
+    return None
+
+# Função para Limpar Marcações Markdown do Texto
+def limpar_markdown(texto):
+    texto = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', texto)
+    texto = re.sub(r'\*(.*?)\*', r'<i>\1</i>', texto)
+    texto = re.sub(r'#+\s*', '', texto)
+    return texto.strip()
+
+# 6. GERADOR DE PDF COMPLETO COM FOTOS E MAPA
+def gerar_pdf_estilo_oficial_rs(nome_escola, municipio, dados_geo, laudo_texto, fotos_bytes, mapa_bytes):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
         buffer, pagesize=letter,
@@ -126,34 +145,32 @@ def gerar_pdf_estilo_oficial_rs(nome_escola, municipio, dados_geo, laudo_texto):
     )
     styles = getSampleStyleSheet()
     
-    # Cores Institucionais RS
     VERMELHO_RS = colors.HexColor("#b91c1c")
     VERDE_RS = colors.HexColor("#15803d")
     AMARELO_RS = colors.HexColor("#f59e0b")
     CINZA_FUNDO = colors.HexColor("#f8fafc")
     TEXTO_ESCURO = colors.HexColor("#0f172a")
     
-    # Estilos de Fontes Refinados
     style_header_title = ParagraphStyle(
         'HeaderTitle', parent=styles['Heading1'],
         fontSize=13, leading=16, textColor=colors.HexColor("#ffffff"), fontName="Helvetica-Bold", alignment=1
     )
     style_sec_title = ParagraphStyle(
         'SecTitle', parent=styles['Heading2'],
-        fontSize=10.5, leading=14, textColor=VERMELHO_RS, spaceBefore=8, spaceAfter=4, fontName="Helvetica-Bold"
+        fontSize=11, leading=15, textColor=VERMELHO_RS, spaceBefore=10, spaceAfter=4, fontName="Helvetica-Bold"
     )
     style_cell_header = ParagraphStyle(
         'CellHeader', parent=styles['Normal'],
-        fontSize=8.5, leading=11, textColor=VERDE_RS, fontName="Helvetica-Bold"
+        fontSize=9, leading=12, textColor=VERDE_RS, fontName="Helvetica-Bold"
     )
     style_cell_body = ParagraphStyle(
         'CellBody', parent=styles['Normal'],
-        fontSize=8.5, leading=11.5, textColor=TEXTO_ESCURO, fontName="Helvetica"
+        fontSize=9.5, leading=13.5, textColor=TEXTO_ESCURO, fontName="Helvetica"
     )
 
     story = []
 
-    # Banner Superior Institucional (Barra Vermelha)
+    # Banner Superior
     banner_data = [[Paragraph("<b>DEFESA CIVIL — RELATÓRIO TÁTICO ESCOLA SEGURA (RS)</b>", style_header_title)]]
     t_banner = Table(banner_data, colWidths=[540])
     t_banner.setStyle(TableStyle([
@@ -164,7 +181,6 @@ def gerar_pdf_estilo_oficial_rs(nome_escola, municipio, dados_geo, laudo_texto):
     ]))
     story.append(t_banner)
     
-    # Faixa Amarela/Verde Decorativa
     faixa_data = [["", ""]]
     t_faixa = Table(faixa_data, colWidths=[270, 270], rowHeights=[3])
     t_faixa.setStyle(TableStyle([
@@ -175,51 +191,91 @@ def gerar_pdf_estilo_oficial_rs(nome_escola, municipio, dados_geo, laudo_texto):
     story.append(t_faixa)
     story.append(Spacer(1, 8))
 
-    # Tabela 1: Identificação Geral do Estabelecimento
-    story.append(Paragraph("<b>1. DADOS DE IDENTIFICAÇÃO E LOCALIZAÇÃO DO PONTO EXATO</b>", style_sec_title))
+    # Identificação Geral
+    story.append(Paragraph("1. DADOS DE IDENTIFICAÇÃO E LOCALIZAÇÃO", style_sec_title))
     
     dados_id = [
-        [Paragraph("<b>Nome do Estabelecimento:</b>", style_cell_header), Paragraph(nome_escola, style_cell_body)],
-        [Paragraph("<b>Município / Estado:</b>", style_cell_header), Paragraph(municipio, style_cell_body)],
-        [Paragraph("<b>Microlocalização Geocodificada:</b>", style_cell_header), Paragraph(dados_geo['endereco'], style_cell_body)],
-        [Paragraph("<b>Altitude do Terreno no Ponto:</b>", style_cell_header), Paragraph(dados_geo['altitude'], style_cell_body)],
-        [Paragraph("<b>Emissão do Laudo:</b>", style_cell_header), Paragraph("Plataforma Digital Escola Segura (Auditoria Técnica)", style_cell_body)]
+        [Paragraph("Nome do Estabelecimento:", style_cell_header), Paragraph(nome_escola, style_cell_body)],
+        [Paragraph("Município / Estado:", style_cell_header), Paragraph(municipio, style_cell_body)],
+        [Paragraph("Microlocalização Geocodificada:", style_cell_header), Paragraph(dados_geo['endereco'], style_cell_body)],
+        [Paragraph("Altitude do Terreno:", style_cell_header), Paragraph(dados_geo['altitude'], style_cell_body)],
+        [Paragraph("Emissão do Laudo:", style_cell_header), Paragraph("Plataforma Digital Escola Segura (Auditoria Técnica)", style_cell_body)]
     ]
     t_id = Table(dados_id, colWidths=[150, 390])
     t_id.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, -1), CINZA_FUNDO),
         ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#cbd5e1")),
         ('BOX', (0, 0), (-1, -1), 1, VERDE_RS),
-        ('PADDING', (0, 0), (-1, -1), 4),
+        ('PADDING', (0, 0), (-1, -1), 5),
     ]))
     story.append(t_id)
-    story.append(Spacer(1, 8))
+    story.append(Spacer(1, 10))
 
-    # Tabela 2: Diagnóstico e Matriz Tática de Abrigo
-    story.append(Paragraph("<b>2. DIAGNÓSTICO DE RISCO E RECOMENDAÇÕES TÁTICAS DE ABRIGO</b>", style_sec_title))
+    # Anexo do Mapa no PDF
+    if mapa_bytes:
+        story.append(Paragraph("MAPA DE LOCALIZAÇÃO DO TERRENO", style_sec_title))
+        img_mapa_io = io.BytesIO(mapa_bytes)
+        rl_mapa = RLImage(img_mapa_io, width=540, height=180)
+        story.append(rl_mapa)
+        story.append(Spacer(1, 10))
+
+    # Diagnóstico Técnico
+    story.append(Paragraph("2. DIAGNÓSTICO DE RISCO E RECOMENDAÇÕES TÁTICAS DE ABRIGO", style_sec_title))
     
     linhas = laudo_texto.split("\n")
     for linha in linhas:
         l = linha.strip()
         if not l:
             continue
+        l_limpa = limpar_markdown(l)
         if l.startswith("###") or l.startswith("##"):
-            texto_limpo = l.replace("#", "").strip()
-            story.append(Paragraph(f"<b>{texto_limpo}</b>", style_sec_title))
-            story.append(HRFlowable(width="100%", thickness=1, color=VERMELHO_RS, spaceAfter=3))
+            story.append(Paragraph(f"<b>{l_limpa}</b>", style_sec_title))
+            story.append(HRFlowable(width="100%", thickness=1, color=VERMELHO_RS, spaceAfter=4))
         elif l.startswith("- ") or l.startswith("* "):
-            texto_limpo = l[2:].strip()
-            story.append(Paragraph(f"• {texto_limpo}", style_cell_body))
+            texto_item = l_limpa.lstrip("-* ").strip()
+            story.append(Paragraph(f"• {texto_item}", style_cell_body))
             story.append(Spacer(1, 2))
         else:
-            story.append(Paragraph(l, style_cell_body))
-            story.append(Spacer(1, 2.5))
+            story.append(Paragraph(l_limpa, style_cell_body))
+            story.append(Spacer(1, 3))
+
+    # Anexo das Fotos Vistoriadas no PDF
+    if fotos_bytes:
+        story.append(Spacer(1, 10))
+        story.append(Paragraph("3. REGISTROS FOTOGRÁFICOS DOS AMBIENTES AUDITADOS", style_sec_title))
+        
+        tabela_fotos_data = []
+        linha_atual = []
+        
+        for i, f_byte in enumerate(fotos_bytes):
+            f_io = io.BytesIO(f_byte)
+            rl_img = RLImage(f_io, width=250, height=160)
+            cap = Paragraph(f"<b>Foto {i+1}</b>", style_cell_body)
+            cell_box = [rl_img, Spacer(1, 2), cap]
+            linha_atual.append(cell_box)
+            
+            if len(linha_atual) == 2:
+                tabela_fotos_data.append(linha_atual)
+                linha_atual = []
+                
+        if linha_atual:
+            if len(linha_atual) == 1:
+                linha_atual.append("")
+            tabela_fotos_data.append(linha_atual)
+            
+        t_fotos = Table(tabela_fotos_data, colWidths=[270, 270])
+        t_fotos.setStyle(TableStyle([
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('PADDING', (0, 0), (-1, -1), 6),
+        ]))
+        story.append(t_fotos)
 
     doc.build(story)
     buffer.seek(0)
     return buffer
 
-# 7. MOTOR IA APROFUNDADO EM PORTUGUÊS (GROQ QWEN 3.6 27B VISION)
+# 7. MOTOR IA BLINDADO CONTRA INSTRUÇÕES INTERNAS
 def analisar_lote_escola(imagens_b64_list, nome_escola, municipio, dados_geo_exatos, obs_gerais):
     if not API_KEY_GROQ:
         return "⚠️ Chave `GROQ_API_KEY` não foi encontrada nos Secrets do Streamlit."
@@ -231,28 +287,27 @@ def analisar_lote_escola(imagens_b64_list, nome_escola, municipio, dados_geo_exa
     }
 
     prompt_sistema = """
-    Você é um Engenheiro Sênior da Defesa Civil do Rio Grande do Sul especialista em Gestão de Riscos e Segurança Escolar.
-    RESPONDA EXCLUSIVAMENTE EM PORTUGUÊS (DO BRASIL). É PROIBIDO O USO DE TERMOS EM INGLÊS.
+    Você é um Engenheiro Sênior da Defesa Civil do Rio Grande do Sul e está emitindo um LAUDO TÉCNICO OFICIAL DE SEGURANÇA ESCOLAR.
+    Sua resposta deve conter EXCLUSIVAMENTE o texto final do laudo técnico. 
+    É RIGOROSAMENTE PROIBIDO incluir auto-reflexões, instruções internas, análises do prompt ou explicações sobre premissas.
 
-    Analise o lote de imagens fornecido e forneça RECOMENDAÇÕES TÁTICAS ULTRA-OBJETIVAS para a proteção dos alunos.
+    Siga estritamente esta estrutura Markdown sem adicionar introduções ou conclusões fora do padrão:
 
-    Siga rigorosamente esta estrutura Markdown:
-
-    ### 📍 1. Diagnóstico Geográfico da Microlocalização Exata
-    Avalie rigorosamente o ponto específico das coordenadas ({coords}) e altitude ({altitude}). Considere o bueiro/rua/bairro identificado e avalie o risco específico de acúmulo de água no terreno ou exposição a ventos severos.
+    ### 📍 1. Diagnóstico Geográfico e de Relevo do Entorno
+    Avalie o ponto exato das coordenadas ({coords}) e altitude ({altitude}). Descreva o risco geomorfológico específico de enxurradas e ventos severos.
 
     ### 🔍 2. Auditoria Detalhada dos Ambientes Anexados
-    Analise cada uma das {num_fotos} foto(s) enviadas individualmente:
-    - **Foto X:** Identifique o ambiente físico (ex: salas, ginásio, corredor) e descreva os pontos fortes e as fragilidades estruturais (ex: janelas de vidro, telha leve, ausência de laje).
+    Para cada uma das {num_fotos} foto(s) anexadas:
+    - **Foto X:** Identifique o ambiente e detalhe a vulnerabilidade dos materiais (vidros, cobertura, vigas).
 
-    ### 🛡️ 3. Matriz Tática de Abrigo por Evento Extremo (Ações Práticas)
-    Forneça instruções diretas e claras sobre onde abrigar os alunos:
-    - 💨 **Vendavais / Microexplosões:** [Zonas Perigosas a Evitar] vs [Local Exato Recomendado para Abrigo Seguro]
-    - 🌊 **Enxurradas / Inundações Rápidas:** [Zonas de Perigo a Evitar] vs [Ponto Exato de Elevação e Resgate]
-    - 🧊 **Granizo Severo:** [Zonas de Perigo a Evitar] vs [Salas com Cobertura Segura]
+    ### 🛡️ 3. Matriz Tática de Abrigo e Posicionamento Espacial
+    Especifique a LOCALIZAÇÃO EXATA no espaço físico da foto onde alunos e professores devem se abrigar:
+    - 💨 **Vendavais / Microexplosões:** Indique exatamente em qual parede interna, abaixo de qual peitoril ou em qual canto oposto às janelas as pessoas devem se posicionar.
+    - 🌊 **Enxurradas Rápidas:** Indique qual escadaria ou pavimento superior utilizar.
+    - 🧊 **Granizo Severo:** Indique os pontos protegidos por laje sólida.
 
-    ### 🚨 4. Plano de Ação Imediata para Professores e Equipe (Primeiros 3 Minutos)
-    Instruções operacionais claras em tópicos para a brigada escolar.
+    ### 🚨 4. Plano de Ação Imediata (Primeiros 3 Minutos)
+    Instruções diretas para a equipe escolar em tópicos objetivos.
     """
 
     prompt_detalhado = prompt_sistema.format(
@@ -264,7 +319,7 @@ def analisar_lote_escola(imagens_b64_list, nome_escola, municipio, dados_geo_exa
     content_payload = [
         {
             "type": "text", 
-            "text": f"Escola: '{nome_escola}' ({municipio}).\nObservações Adicionais: '{obs_gerais}'.\nAnalise o lote de {len(imagens_b64_list)} foto(s) e gere o laudo."
+            "text": f"Escola: '{nome_escola}' ({municipio}). Observações do Gestor: '{obs_gerais}'."
         }
     ]
 
@@ -282,7 +337,7 @@ def analisar_lote_escola(imagens_b64_list, nome_escola, municipio, dados_geo_exa
             {"role": "user", "content": content_payload}
         ],
         "model": "qwen/qwen3.6-27b",
-        "temperature": 0.2
+        "temperature": 0.1
     }
 
     try:
@@ -295,7 +350,7 @@ def analisar_lote_escola(imagens_b64_list, nome_escola, municipio, dados_geo_exa
         return f"⚠️ Erro de conexão com a API de Visão: {e}"
 
 # =========================================================
-# FLUXO PRINCIPAL DA TELA
+# FLUXO PRINCIPAL
 # =========================================================
 
 # 1. IDENTIFICAÇÃO DA ESCOLA
@@ -315,21 +370,11 @@ obs_gerais = st.text_area(
 st.markdown("---")
 
 # 2. GEOLOCALIZAÇÃO DIRETA E DINÂMICA
-st.subheader("📍 2. Localização Geográfica de Precisão (GPS do Dispositivo)")
+st.subheader("📍 2. Localização Geográfica de Precisão")
 
-if "lat_gps" not in st.session_state:
-    st.session_state["lat_gps"] = -30.059776
-if "lon_gps" not in st.session_state:
-    st.session_state["lon_gps"] = -51.220223
+lat_input = st.number_input("Latitude Coletada (GPS):", value=-30.059776, format="%.6f")
+lon_input = st.number_input("Longitude Coletada (GPS):", value=-51.220223, format="%.6f")
 
-# Campos de entrada ligados ao estado da sessão
-col_coords1, col_coords2 = st.columns(2)
-with col_coords1:
-    lat_input = st.number_input("Latitude Coletada (GPS):", value=st.session_state["lat_gps"], format="%.6f")
-with col_coords2:
-    lon_input = st.number_input("Longitude Coletada (GPS):", value=st.session_state["lon_gps"], format="%.6f")
-
-# Busca detalhes geográficos em tempo real para o ponto selecionado
 geo_exata = obter_detalhes_geograficos_exatos(lat_input, lon_input)
 
 st.info(f"📌 **Localização Geocodificada:** {geo_exata['endereco_completo']}")
@@ -356,14 +401,16 @@ arquivos_uploaded = st.file_uploader(
 )
 
 lote_b64 = []
+fotos_raw_list = []
 
 if arquivos_uploaded:
     st.write(f"📂 **{len(arquivos_uploaded)} foto(s) carregada(s):**")
     cols = st.columns(min(len(arquivos_uploaded), 4))
     
     for i, file in enumerate(arquivos_uploaded):
-        img_corrigida, b64_str = otimizar_e_corrigir_orientacao(file.getvalue())
+        img_corrigida, b64_str, raw_bytes = otimizar_e_corrigir_orientacao(file.getvalue())
         lote_b64.append(b64_str)
+        fotos_raw_list.append(raw_bytes)
         
         with cols[i % 4]:
             st.image(img_corrigida, caption=f"Foto {i+1}: {file.name}", use_container_width=True)
@@ -375,12 +422,17 @@ st.subheader("🛡️ 4. Laudo Técnico Tático & Plano de Contingência Escolar
 
 if arquivos_uploaded:
     if st.button("🚨 Gerar Plano Tático de Abrigo & Relatório PDF (IA)", type="primary"):
-        with st.spinner("Analisando fotos, topografia e formulando plano prático de abrigo..."):
+        with st.spinner("Analisando fotos, gerando mapa estático e compilando PDF oficial..."):
             laudo_completo = analisar_lote_escola(lote_b64, nome_escola, municipio_input, geo_payload, obs_gerais)
             st.session_state["laudo_unificado"] = laudo_completo
             
-            # Gera o PDF no modelo oficial do RS
-            pdf_bytes = gerar_pdf_estilo_oficial_rs(nome_escola, municipio_input, geo_payload, laudo_completo)
+            # Gerar imagem do mapa para anexo
+            mapa_bytes = gerar_imagem_mapa(lat_input, lon_input)
+            
+            # Gerar PDF limpo e formatado
+            pdf_bytes = gerar_pdf_estilo_oficial_rs(
+                nome_escola, municipio_input, geo_payload, laudo_completo, fotos_raw_list, mapa_bytes
+            )
             st.session_state["pdf_bytes"] = pdf_bytes
 
     if "laudo_unificado" in st.session_state and st.session_state["laudo_unificado"]:
@@ -438,4 +490,4 @@ with c3:
         </ul>
     </div>
     """, unsafe_allow_html=True)
-                                                  
+    
