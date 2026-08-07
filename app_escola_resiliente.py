@@ -14,12 +14,12 @@ from reportlab.lib import colors
 
 # 1. Configuração da Página
 st.set_page_config(
-    page_title="Escola Resiliente IA — Defesa Civil",
-    page_icon="🏫",
+    page_title="Escola Segura — Defesa Civil",
+    page_icon="🛡️",
     layout="wide"
 )
 
-# 2. CSS Adaptável
+# 2. Estilização CSS Adaptável (Dark & Light Mode Nativo)
 st.markdown("""
     <style>
     h1, h2, h3, h4, h5, h6, 
@@ -57,7 +57,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🏫 Escola Resiliente IA")
+st.title("🛡️ Escola Segura")
 st.caption("Sistema Tático de Mapeamento de Riscos e Zonas de Abrigo Escolar — Defesa Civil")
 st.markdown("---")
 
@@ -74,21 +74,16 @@ API_KEY_GROQ = obter_groq_api_key()
 def otimizar_e_corrigir_orientacao(file_bytes, max_dim=1024, qualidade=75):
     try:
         img = Image.open(io.BytesIO(file_bytes))
-        
-        # Corrigir rotação EXIF de fotos tiradas de celular
         img = ImageOps.exif_transpose(img)
         
-        # Converter para RGB se necessário
         if img.mode in ("RGBA", "P"):
             img = img.convert("RGB")
             
-        # Redimensionar mantendo proporção
         img.thumbnail((max_dim, max_dim))
         
         buffer = io.BytesIO()
         img.save(buffer, format="JPEG", quality=qualidade)
         
-        # Retorna a imagem PIL corrigida para exibição e a string Base64 para a API
         b64_str = base64.b64encode(buffer.getvalue()).decode('utf-8')
         return img, b64_str
     except Exception:
@@ -96,7 +91,7 @@ def otimizar_e_corrigir_orientacao(file_bytes, max_dim=1024, qualidade=75):
         b64_raw = base64.b64encode(file_bytes).decode('utf-8')
         return img_raw, b64_raw
 
-# 5. LOCALIZAÇÃO DO DISPOSITIVO & ANÁLISE GEOGRÁFICA DE RISCO
+# 5. LOCALIZAÇÃO DE PRECISÃO: COORDENADAS, ENDEREÇO EXACTO & ALTITUDE NO RELEVO
 @st.cache_data(ttl=300)
 def obter_localizacao_ip():
     try:
@@ -106,12 +101,44 @@ def obter_localizacao_ip():
             return {
                 "cidade": data.get("city", "Não identificada"),
                 "estado": data.get("region_code", "RS"),
-                "lat": data.get("latitude", -29.91),
-                "lon": data.get("longitude", -50.26)
+                "lat": float(data.get("latitude", -29.88)),
+                "lon": float(data.get("longitude", -50.26))
             }
     except Exception:
         pass
     return {"cidade": "Osório", "estado": "RS", "lat": -29.88, "lon": -50.26}
+
+@st.cache_data(ttl=3600)
+def obter_detalhes_geograficos_exatos(lat, lon):
+    detalhes = {
+        "endereco_completo": "Coordenadas informadas diretamente no mapa",
+        "altitude_m": "N/D"
+    }
+    headers = {"User-Agent": "EscolaSegura_DefesaCivilApp"}
+    
+    # 1. Geocodificação Reversa para pegar o Bairro/Rua exatos (Nominatim OSM)
+    try:
+        url_geo = f"https://nominatim.openstreetmap.org/reverse?format=json&lat={lat}&lon={lon}"
+        res_geo = requests.get(url_geo, headers=headers, timeout=4)
+        if res_geo.status_code == 200:
+            data_geo = res_geo.json()
+            detalhes["endereco_completo"] = data_geo.get("display_name", "Endereço geolocalizado")
+    except Exception:
+        pass
+
+    # 2. Altitude exata no terreno (Open-Meteo Elevation API - Copernicus DEM 90m)
+    try:
+        url_alt = f"https://open-meteo.com/en/docs/elevation-api?latitude={lat}&longitude={lon}"
+        res_alt = requests.get(f"https://api.open-meteo.com/v1/elevation?latitude={lat}&longitude={lon}", timeout=4)
+        if res_alt.status_code == 200:
+            data_alt = res_alt.json()
+            elev_list = data_alt.get("elevation", [])
+            if elev_list:
+                detalhes["altitude_m"] = f"{elev_list[0]} metros acima do nível do mar"
+    except Exception:
+        pass
+        
+    return detalhes
 
 # 6. GERAÇÃO DE RELATÓRIO PDF (ReportLab)
 def gerar_pdf_laudo(nome_escola, municipio, endereco_conf, laudo_texto):
@@ -119,7 +146,6 @@ def gerar_pdf_laudo(nome_escola, municipio, endereco_conf, laudo_texto):
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
     styles = getSampleStyleSheet()
     
-    # Customização de estilos para o PDF
     title_style = ParagraphStyle(
         'DocTitle',
         parent=styles['Heading1'],
@@ -145,15 +171,14 @@ def gerar_pdf_laudo(nome_escola, municipio, endereco_conf, laudo_texto):
     
     story = []
     
-    # Cabeçalho do Documento
     story.append(Paragraph("<b>DEFESA CIVIL — PLANO TÁTICO DE RESILIÊNCIA ESCOLAR</b>", title_style))
     story.append(Spacer(1, 8))
     
     info_tabela = [
         [Paragraph("<b>Estabelecimento:</b>", body_style), Paragraph(nome_escola, body_style)],
         [Paragraph("<b>Município:</b>", body_style), Paragraph(municipio, body_style)],
-        [Paragraph("<b>Localização Confirmada:</b>", body_style), Paragraph(endereco_conf, body_style)],
-        [Paragraph("<b>Emissão do Laudo:</b>", body_style), Paragraph("Sistema de Inteligência Artificial Escola Resiliente", body_style)]
+        [Paragraph("<b>Microlocalização Exata:</b>", body_style), Paragraph(endereco_conf, body_style)],
+        [Paragraph("<b>Emissão do Laudo:</b>", body_style), Paragraph("Plataforma de Inteligência Artificial Escola Segura", body_style)]
     ]
     t = Table(info_tabela, colWidths=[130, 400])
     t.setStyle(TableStyle([
@@ -164,7 +189,6 @@ def gerar_pdf_laudo(nome_escola, municipio, endereco_conf, laudo_texto):
     story.append(t)
     story.append(Spacer(1, 14))
     
-    # Processar Markdown do Laudo para Parágrafos no PDF
     linhas = laudo_texto.split("\n")
     for linha in linhas:
         l = linha.strip()
@@ -186,7 +210,7 @@ def gerar_pdf_laudo(nome_escola, municipio, endereco_conf, laudo_texto):
     return buffer
 
 # 7. MOTOR IA (GROQ QWEN 3.6 27B VISION)
-def analisar_lote_escola(imagens_b64_list, nome_escola, municipio, coords_str, obs_gerais):
+def analisar_lote_escola(imagens_b64_list, nome_escola, municipio, dados_geo_exatos, obs_gerais):
     if not API_KEY_GROQ:
         return "⚠️ Chave `GROQ_API_KEY` não foi encontrada nos Secrets do Streamlit."
 
@@ -197,31 +221,33 @@ def analisar_lote_escola(imagens_b64_list, nome_escola, municipio, coords_str, o
     }
 
     prompt_sistema = """
-    Você é um Engenheiro Sênior de Defesa Civil especialista em Vistoria de Riscos Estruturais em Escolas.
-    Sua missão é gerar um PLANO DE CONTINGÊNCIA TÁTICO E ULTRA-OBJETIVO com foco em ZONAS DE ABRIGO E SEGURANÇA.
+    Você é um Engenheiro Sênior de Defesa Civil especialista em Vistoria de Riscos Estruturais e Geográficos em Escolas.
+    Sua missão é gerar um PLANO DE CONTINGÊNCIA TÁTICO E ULTRA-OBJETIVO com foco em ZONAS DE ABRIGO E SEGURANÇA baseando-se EXATAMENTE na microlocalização do terreno e fotos enviadas.
 
     Siga rigorosamente esta estrutura Markdown:
 
-    ### 📍 1. Avaliação Geográfica & Riscos do Entorno
-    Baseado nas coordenadas fornecidas e relevo da região, determine os principais riscos ambientais incidentes (ex: enxurradas em baixadas, ventos severos em cumes/áreas abertas, tempestades com granizo).
+    ### 📍 1. Diagnóstico Geográfico da Microlocalização
+    Avalie o ponto EXATO da coordenada geográfica fornecida (considerando as características do endereço, a altitude informada e a inclinação/relevo da área). Determine a suscetibilidade do terreno exato a:
+    - Enxurradas / Acúmulo de água por baixada ou proximidade de corpos d'água;
+    - Exposição a ventos severos e microexplosões por topo de coxilha/área descampada.
 
     ### 🔍 2. Análise Detalhada dos Ambientes Anexados
-    Vincule DIRETAMENTE cada foto (ex: Foto 1, Foto 2, Foto 3) ao seu ambiente físico e liste suas características estruturais e fragilidades.
+    Vincule DIRETAMENTE cada foto enviada (ex: Foto 1, Foto 2, Foto 3) ao seu ambiente físico e enumere suas fragilidades estruturais (ex: janelas de vidro sem película, telhamento leve, estrutura de alvenaria sem laje).
 
     ### 🛡️ 3. Matriz Objetiva de Abrigo por Tipo de Emergência
-    Especifique EXATAMENTE para onde mover os alunos e professores em cada situação:
-    - 💨 **Vendaval / Microexplosão (Vento Severo):** [ZONA DE PERIGO A EVITAR] vs [LOCAL EXATO RECOMENDADO PARA ABRIGO]
+    Especifique EXATAMENTE para onde mover os alunos e professores em cada situação, considerando o plano físico da escola:
+    - 💨 **Vendaval / Microexplosão (Vento Severo):** [ZONA DE PERIGO A EVITAR] vs [LOCAL EXATO RECOMENDADA PARA ABRIGO]
     - 🌊 **Enxurrada / Inundação Rápida:** [ZONA DE PERIGO A EVITAR] vs [PONTO EXATO DE ELEVAÇÃO/ABRIGO]
     - 🧊 **Granizo Severo:** [ZONA DE PERIGO A EVITAR] vs [SALA/CORREDOR SEGURO]
 
     ### 🚨 4. Protocolo Prático de Ação (Ações Imediatas nos primeiros 3 minutos)
-    Instruções diretas para a direção, brigada escolar e professores.
+    Instruções diretas e acionáveis para a direção, brigada escolar e professores.
     """
 
     content_payload = [
         {
             "type": "text", 
-            "text": f"Escola: '{nome_escola}' em '{municipio}' (Coordenadas/Geografia: {coords_str}).\nObservações do Gestor: '{obs_gerais}'.\nAnalise as {len(imagens_b64_list)} fotos anexadas e elabore o laudo tático."
+            "text": f"Escola: '{nome_escola}' em '{municipio}'.\nDADOS GEOGRÁFICOS EXATOS DO PONTO:\n- Coordenadas/Endereço: {dados_geo_exatos['endereco']}\n- Altitude no terreno: {dados_geo_exatos['altitude']}\nObservações do Gestor: '{obs_gerais}'.\nAnalise o conjunto de {len(imagens_b64_list)} fotos anexadas e elabore o laudo tático."
         }
     ]
 
@@ -266,41 +292,51 @@ with col_f2:
 
 obs_gerais = st.text_area(
     "Observações Gerais da Estrutura ou Histórico de Eventos Extremos na Escola:",
-    "Escola com ginásio de cobertura metálica leve, salas de aula com janelas de vidro voltadas para o pátio aberto e histórico de ventos fortes."
+    "Escola com ginásio de cobertura metálica leve, salas de aula com janelas de vidro voltadas para o pátio aberto e histórico de ventos fortes na região."
 )
 
 st.markdown("---")
 
-# 2. LOCALIZAÇÃO DO DISPOSITIVO & CONFIRMAÇÃO
-st.subheader("📍 2. Localização Geográfica & Avaliação do Entorno")
+# 2. LOCALIZAÇÃO DO DISPOSITIVO & ANÁLISE GEOGRÁFICA DE PRECISÃO
+st.subheader("📍 2. Localização Geográfica de Precisão do Terreno")
+st.caption("O sistema coleta a coordenada exata para avaliar a altitude no relevo e a vulnerabilidade geomorfológica do local.")
 
 loc_detectada = obter_localizacao_ip()
 
-col_map1, col_map2 = st.columns([1, 1.2])
+col_map1, col_map2 = st.columns([1.1, 0.9])
 
 with col_map1:
-    st.info(f"🌐 **Localização estimada do dispositivo:** {loc_detectada['cidade']} - {loc_detectada['estado']}")
-    confirmar_loc = st.checkbox("Confirmar esta localização para a análise de riscos geográficos do entorno", value=True)
+    lat_input = st.number_input("Latitude Coletada:", value=loc_detectada['lat'], format="%.6f")
+    lon_input = st.number_input("Longitude Coletada:", value=loc_detectada['lon'], format="%.6f")
+    
+    confirmar_loc = st.checkbox("Confirmar estas coordenadas exatas para a análise de riscos de relevo/altitude", value=True)
     
     if confirmar_loc:
-        lat_final = loc_detectada['lat']
-        lon_final = loc_detectada['lon']
-        coords_str = f"Lat: {lat_final}, Lon: {lon_final}"
-        st.success(f"✅ Localização confirmada: {coords_str}")
+        geo_exata = obter_detalhes_geograficos_exatos(lat_input, lon_input)
+        st.success(f"📌 **Endereço Geocodificado:** {geo_exata['endereco_completo']}")
+        st.info(f"🏔️ **Altitude Exata no Terreno:** {geo_exata['altitude_m']}")
+        
+        geo_payload = {
+            "endereco": f"Lat {lat_input}, Lon {lon_input} ({geo_exata['endereco_completo']})",
+            "altitude": geo_exata['altitude_m']
+        }
     else:
-        coords_str = f"Município de {municipio_input} (Ajuste manual pelo usuário)"
+        geo_payload = {
+            "endereco": f"Município de {municipio_input} (Sem coordenadas exatas)",
+            "altitude": "Genérica do município"
+        }
         st.warning("⚠️ Usando geolocalização geral do município informado.")
 
 with col_map2:
     if confirmar_loc:
-        df_mapa = pd.DataFrame({"lat": [loc_detectada['lat']], "lon": [loc_detectada['lon']]})
-        st.map(df_mapa, zoom=13)
+        df_mapa = pd.DataFrame({"lat": [lat_input], "lon": [lon_input]})
+        st.map(df_mapa, zoom=14)
 
 st.markdown("---")
 
 # 3. UPLOAD DE FOTOS (COM CORREÇÃO DE ROTAÇÃO EXIF)
 st.subheader("📸 3. Registros Fotográficos dos Ambientes da Escola")
-st.caption("Selecione fotos de salas de aula, corredores, ginásio, pátio externo e planta baixa. O sistema corrige automaticamente a orientação das fotos tiradas no celular.")
+st.caption("Selecione fotos de salas de aula, corredores, ginásio, pátio externo e planta baixa. O sistema corrige automaticamente a rotação de fotos tiradas no celular.")
 
 arquivos_uploaded = st.file_uploader(
     "Carregue as fotos dos ambientes da escola (Selecione vários arquivos JPG/PNG):", 
@@ -308,7 +344,6 @@ arquivos_uploaded = st.file_uploader(
     accept_multiple_files=True
 )
 
-imagens_processadas = []
 lote_b64 = []
 
 if arquivos_uploaded:
@@ -316,7 +351,6 @@ if arquivos_uploaded:
     cols = st.columns(min(len(arquivos_uploaded), 4))
     
     for i, file in enumerate(arquivos_uploaded):
-        # Trata rotação EXIF e converte
         img_corrigida, b64_str = otimizar_e_corrigir_orientacao(file.getvalue())
         lote_b64.append(b64_str)
         
@@ -330,12 +364,13 @@ st.subheader("🛡️ 4. Laudo Técnico Tático & Plano de Contingência Escolar
 
 if arquivos_uploaded:
     if st.button("🚨 Gerar Plano Tático de Abrigo & Relatório PDF (IA)", type="primary"):
-        with st.spinner("Analisando topografia, fotos corrigidas e zonas de abrigo..."):
-            laudo_completo = analisar_lote_escola(lote_b64, nome_escola, municipio_input, coords_str, obs_gerais)
+        with st.spinner("Analisando altitude, coordenadas exatas, fotos corrigidas e zonas de abrigo..."):
+            laudo_completo = analisar_lote_escola(lote_b64, nome_escola, municipio_input, geo_payload, obs_gerais)
             st.session_state["laudo_unificado"] = laudo_completo
             
-            # Gera o PDF em memória
-            pdf_bytes = gerar_pdf_laudo(nome_escola, municipio_input, coords_str, laudo_completo)
+            # Gera o PDF
+            end_pdf = geo_payload['endereco'] + f" | Altitude: {geo_payload['altitude']}"
+            pdf_bytes = gerar_pdf_laudo(nome_escola, municipio_input, end_pdf, laudo_completo)
             st.session_state["pdf_bytes"] = pdf_bytes
 
     if "laudo_unificado" in st.session_state and st.session_state["laudo_unificado"]:
@@ -344,9 +379,9 @@ if arquivos_uploaded:
         st.markdown("---")
         if "pdf_bytes" in st.session_state:
             st.download_button(
-                label="📄 Baixar Relatório Oficial em PDF (Para Arquivo & Divulgação)",
+                label="📄 Baixar Relatório Oficial em PDF (Escola Segura)",
                 data=st.session_state["pdf_bytes"],
-                file_name=f"Plano_Resiliencia_Escolar_{nome_escola.replace(' ', '_')}.pdf",
+                file_name=f"Plano_Escola_Segura_{nome_escola.replace(' ', '_')}.pdf",
                 mime="application/pdf"
             )
 else:
@@ -393,4 +428,4 @@ with c3:
         </ul>
     </div>
     """, unsafe_allow_html=True)
-        
+                
