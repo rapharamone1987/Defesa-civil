@@ -1,5 +1,4 @@
 import streamlit as st
-import streamlit.components.v1 as components
 import pandas as pd
 import requests
 import base64
@@ -7,7 +6,7 @@ import os
 from PIL import Image, ImageOps
 import io
 
-# ReportLab para geração do PDF com o tema Farroupilha (Cores do RS)
+# ReportLab para geração do PDF com o tema e fontes oficiais
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -20,7 +19,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# 2. CSS de Alto Contraste e Adaptabilidade
+# 2. Estilização CSS Adaptável (Dark & Light Mode Nativo)
 st.markdown("""
     <style>
     h1, h2, h3, h4, h5, h6, 
@@ -88,8 +87,8 @@ def otimizar_e_corrigir_orientacao(file_bytes, max_dim=1024, qualidade=80):
         b64_raw = base64.b64encode(file_bytes).decode('utf-8')
         return img_raw, b64_raw
 
-# 5. Geocodificação Exata
-@st.cache_data(ttl=3600)
+# 5. Geocodificação Exata com Cache Dinâmico
+@st.cache_data(ttl=600)
 def obter_detalhes_geograficos_exatos(lat, lon):
     detalhes = {
         "endereco_completo": f"Latitude {lat:.6f}, Longitude {lon:.6f}",
@@ -118,7 +117,7 @@ def obter_detalhes_geograficos_exatos(lat, lon):
         
     return detalhes
 
-# 6. GERADOR DE PDF COM O TEMA E CORES DO RIO GRANDE DO SUL
+# 6. GERADOR DE PDF COM FORMATADORES E FONTES REFINADAS (Estilo Oficial RS)
 def gerar_pdf_estilo_oficial_rs(nome_escola, municipio, dados_geo, laudo_texto):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -127,28 +126,29 @@ def gerar_pdf_estilo_oficial_rs(nome_escola, municipio, dados_geo, laudo_texto):
     )
     styles = getSampleStyleSheet()
     
-    # Cores Farroupilha (RS)
+    # Cores Institucionais RS
     VERMELHO_RS = colors.HexColor("#b91c1c")
     VERDE_RS = colors.HexColor("#15803d")
     AMARELO_RS = colors.HexColor("#f59e0b")
-    CINZA_FUNDO = colors.HexColor("#fefce8")  # Fundo levemente amarelado/palha
+    CINZA_FUNDO = colors.HexColor("#f8fafc")
+    TEXTO_ESCURO = colors.HexColor("#0f172a")
     
-    # Estilos Oficiais
+    # Estilos de Fontes Refinados
     style_header_title = ParagraphStyle(
         'HeaderTitle', parent=styles['Heading1'],
-        fontSize=14, leading=18, textColor=colors.HexColor("#ffffff"), fontName="Helvetica-Bold", alignment=1
+        fontSize=13, leading=16, textColor=colors.HexColor("#ffffff"), fontName="Helvetica-Bold", alignment=1
     )
     style_sec_title = ParagraphStyle(
         'SecTitle', parent=styles['Heading2'],
-        fontSize=11, leading=14, textColor=VERMELHO_RS, spaceBefore=10, spaceAfter=4, fontName="Helvetica-Bold"
+        fontSize=10.5, leading=14, textColor=VERMELHO_RS, spaceBefore=8, spaceAfter=4, fontName="Helvetica-Bold"
     )
     style_cell_header = ParagraphStyle(
         'CellHeader', parent=styles['Normal'],
-        fontSize=9, leading=11, textColor=VERDE_RS, fontName="Helvetica-Bold"
+        fontSize=8.5, leading=11, textColor=VERDE_RS, fontName="Helvetica-Bold"
     )
     style_cell_body = ParagraphStyle(
         'CellBody', parent=styles['Normal'],
-        fontSize=8.5, leading=11.5, textColor=colors.HexColor("#0f172a"), fontName="Helvetica"
+        fontSize=8.5, leading=11.5, textColor=TEXTO_ESCURO, fontName="Helvetica"
     )
 
     story = []
@@ -160,43 +160,43 @@ def gerar_pdf_estilo_oficial_rs(nome_escola, municipio, dados_geo, laudo_texto):
         ('BACKGROUND', (0, 0), (-1, -1), VERMELHO_RS),
         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('PADDING', (0, 0), (-1, -1), 8),
+        ('PADDING', (0, 0), (-1, -1), 6),
     ]))
     story.append(t_banner)
     
     # Faixa Amarela/Verde Decorativa
     faixa_data = [["", ""]]
-    t_faixa = Table(faixa_data, colWidths=[270, 270], rowHeights=[4])
+    t_faixa = Table(faixa_data, colWidths=[270, 270], rowHeights=[3])
     t_faixa.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (0, 0), AMARELO_RS),
         ('BACKGROUND', (1, 0), (1, 0), VERDE_RS),
         ('PADDING', (0, 0), (-1, -1), 0),
     ]))
     story.append(t_faixa)
-    story.append(Spacer(1, 10))
+    story.append(Spacer(1, 8))
 
     # Tabela 1: Identificação Geral do Estabelecimento
-    story.append(Paragraph("<b>1. DADOS DE IDENTIFICAÇÃO E LOCALIZAÇÃO</b>", style_sec_title))
+    story.append(Paragraph("<b>1. DADOS DE IDENTIFICAÇÃO E LOCALIZAÇÃO DO PONTO EXATO</b>", style_sec_title))
     
     dados_id = [
         [Paragraph("<b>Nome do Estabelecimento:</b>", style_cell_header), Paragraph(nome_escola, style_cell_body)],
         [Paragraph("<b>Município / Estado:</b>", style_cell_header), Paragraph(municipio, style_cell_body)],
-        [Paragraph("<b>Endereço Geocodificado:</b>", style_cell_header), Paragraph(dados_geo['endereco'], style_cell_body)],
-        [Paragraph("<b>Altitude do Terreno:</b>", style_cell_header), Paragraph(dados_geo['altitude'], style_cell_body)],
+        [Paragraph("<b>Microlocalização Geocodificada:</b>", style_cell_header), Paragraph(dados_geo['endereco'], style_cell_body)],
+        [Paragraph("<b>Altitude do Terreno no Ponto:</b>", style_cell_header), Paragraph(dados_geo['altitude'], style_cell_body)],
         [Paragraph("<b>Emissão do Laudo:</b>", style_cell_header), Paragraph("Plataforma Digital Escola Segura (Auditoria Técnica)", style_cell_body)]
     ]
-    t_id = Table(dados_id, colWidths=[140, 400])
+    t_id = Table(dados_id, colWidths=[150, 390])
     t_id.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, -1), CINZA_FUNDO),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#fde047")),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#cbd5e1")),
         ('BOX', (0, 0), (-1, -1), 1, VERDE_RS),
-        ('PADDING', (0, 0), (-1, -1), 5),
+        ('PADDING', (0, 0), (-1, -1), 4),
     ]))
     story.append(t_id)
-    story.append(Spacer(1, 10))
+    story.append(Spacer(1, 8))
 
     # Tabela 2: Diagnóstico e Matriz Tática de Abrigo
-    story.append(Paragraph("<b>2. DIAGNÓSTICO E RECOMENDAÇÕES TÁTICAS DE ABRIGO</b>", style_sec_title))
+    story.append(Paragraph("<b>2. DIAGNÓSTICO DE RISCO E RECOMENDAÇÕES TÁTICAS DE ABRIGO</b>", style_sec_title))
     
     linhas = laudo_texto.split("\n")
     for linha in linhas:
@@ -206,14 +206,14 @@ def gerar_pdf_estilo_oficial_rs(nome_escola, municipio, dados_geo, laudo_texto):
         if l.startswith("###") or l.startswith("##"):
             texto_limpo = l.replace("#", "").strip()
             story.append(Paragraph(f"<b>{texto_limpo}</b>", style_sec_title))
-            story.append(HRFlowable(width="100%", thickness=1, color=VERMELHO_RS, spaceAfter=4))
+            story.append(HRFlowable(width="100%", thickness=1, color=VERMELHO_RS, spaceAfter=3))
         elif l.startswith("- ") or l.startswith("* "):
             texto_limpo = l[2:].strip()
             story.append(Paragraph(f"• {texto_limpo}", style_cell_body))
             story.append(Spacer(1, 2))
         else:
             story.append(Paragraph(l, style_cell_body))
-            story.append(Spacer(1, 3))
+            story.append(Spacer(1, 2.5))
 
     doc.build(story)
     buffer.seek(0)
@@ -238,8 +238,8 @@ def analisar_lote_escola(imagens_b64_list, nome_escola, municipio, dados_geo_exa
 
     Siga rigorosamente esta estrutura Markdown:
 
-    ### 📍 1. Diagnóstico Geográfico e de Relevo do Entorno
-    Avalie a vulnerabilidade do terreno nas coordenadas fornecidas ({coords}) e altitude ({altitude}) para enxurradas, vendavais e granizo.
+    ### 📍 1. Diagnóstico Geográfico da Microlocalização Exata
+    Avalie rigorosamente o ponto específico das coordenadas ({coords}) e altitude ({altitude}). Considere o bueiro/rua/bairro identificado e avalie o risco específico de acúmulo de água no terreno ou exposição a ventos severos.
 
     ### 🔍 2. Auditoria Detalhada dos Ambientes Anexados
     Analise cada uma das {num_fotos} foto(s) enviadas individualmente:
@@ -305,63 +305,41 @@ col_f1, col_f2 = st.columns(2)
 with col_f1:
     nome_escola = st.text_input("Nome Completo da Escola:", "EEEB Marquês de Herval")
 with col_f2:
-    municipio_input = st.text_input("Município / Estado:", "Osório / RS")
+    municipio_input = st.text_input("Município / Estado:", "Porto Alegre / RS")
 
 obs_gerais = st.text_area(
     "Observações Gerais da Estrutura ou Histórico de Eventos Extremos na Escola:",
-    "Escola com ginásio de cobertura metálica leve, salas de aula com janelas de vidro voltadas para o pátio aberto e histórico de ventos fortes na região."
+    "Escola com ginásio de cobertura metálica leve, salas de aula com janelas de vidro voltadas para o pátio aberto e histórico de tempestades fortes."
 )
 
 st.markdown("---")
 
-# 2. GEOLOCALIZAÇÃO DIRETA VIA DISPOSITIVO
-st.subheader("📍 2. Localização Geográfica de Precisão")
+# 2. GEOLOCALIZAÇÃO DIRETA E DINÂMICA
+st.subheader("📍 2. Localização Geográfica de Precisão (GPS do Dispositivo)")
 
-js_geo_auto = """
-<script>
-function capturarGPS() {
-    if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(
-            function(pos) {
-                const lat = pos.coords.latitude;
-                const lon = pos.coords.longitude;
-                document.getElementById("status_gps").innerHTML = 
-                    "<b>🟢 GPS Coletado com Sucesso:</b> Latitude " + lat.toFixed(6) + " | Longitude " + lon.toFixed(6);
-            },
-            function(err) {
-                document.getElementById("status_gps").innerHTML = "⚠️ Não foi possível obter o GPS automático: " + err.message;
-            },
-            {enableHighAccuracy: true, timeout: 8000}
-        );
-    }
-}
-capturarGPS();
-</script>
-<div id="status_gps" style="font-size: 14px; font-weight: 500; color: #b91c1c; margin-bottom: 8px;"></div>
-"""
-components.html(js_geo_auto, height=40)
+if "lat_gps" not in st.session_state:
+    st.session_state["lat_gps"] = -30.059776
+if "lon_gps" not in st.session_state:
+    st.session_state["lon_gps"] = -51.220223
 
-ajustar_manual = st.checkbox("⚠️ As coordenadas foram puxadas incorretamente? (Marque aqui para ajustar manualmente)")
+# Campos de entrada ligados ao estado da sessão
+col_coords1, col_coords2 = st.columns(2)
+with col_coords1:
+    lat_input = st.number_input("Latitude Coletada (GPS):", value=st.session_state["lat_gps"], format="%.6f")
+with col_coords2:
+    lon_input = st.number_input("Longitude Coletada (GPS):", value=st.session_state["lon_gps"], format="%.6f")
 
-if ajustar_manual:
-    col_m1, col_m2 = st.columns(2)
-    with col_m1:
-        lat_final = st.number_input("Latitude Manual:", value=-29.887200, format="%.6f")
-    with col_m2:
-        lon_final = st.number_input("Longitude Manual:", value=-50.264100, format="%.6f")
-    
-    df_mapa = pd.DataFrame({"lat": [lat_final], "lon": [lon_final]})
-    st.map(df_mapa, zoom=15)
-else:
-    lat_final = -29.887200
-    lon_final = -50.264100
+# Busca detalhes geográficos em tempo real para o ponto selecionado
+geo_exata = obter_detalhes_geograficos_exatos(lat_input, lon_input)
 
-geo_exata = obter_detalhes_geograficos_exatos(lat_final, lon_final)
 st.info(f"📌 **Localização Geocodificada:** {geo_exata['endereco_completo']}")
 st.success(f"🏔️ **Altitude Exata no Terreno:** {geo_exata['altitude_m']}")
 
+df_mapa = pd.DataFrame({"lat": [lat_input], "lon": [lon_input]})
+st.map(df_mapa, zoom=15)
+
 geo_payload = {
-    "endereco": f"Lat {lat_final:.6f}, Lon {lon_final:.6f} ({geo_exata['endereco_completo']})",
+    "endereco": f"Lat {lat_input:.6f}, Lon {lon_input:.6f} ({geo_exata['endereco_completo']})",
     "altitude": geo_exata['altitude_m']
 }
 
@@ -460,4 +438,4 @@ with c3:
         </ul>
     </div>
     """, unsafe_allow_html=True)
-    
+                                                  
