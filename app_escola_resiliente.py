@@ -3,20 +3,25 @@ import pandas as pd
 import requests
 import base64
 import os
-from PIL import Image
+from PIL import Image, ImageOps
 import io
+
+# Importação para geração de PDF
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib import colors
 
 # 1. Configuração da Página
 st.set_page_config(
-    page_title="Escola Resiliente IA — Gestão de Riscos",
+    page_title="Escola Resiliente IA — Defesa Civil",
     page_icon="🏫",
     layout="wide"
 )
 
-# 2. Estilização CSS Totalmente Adaptável (Light & Dark Mode Nativo)
+# 2. CSS Adaptável
 st.markdown("""
     <style>
-    /* Respeita o tema do usuário usando variáveis nativas do Streamlit */
     h1, h2, h3, h4, h5, h6, 
     .stMarkdown h1, .stMarkdown h2, .stMarkdown h3, .stMarkdown h4,
     .stMarkdown p, .stMarkdown li, .stCaption, span, label {
@@ -25,7 +30,6 @@ st.markdown("""
         white-space: normal !important;
     }
 
-    /* File Uploader Adaptável */
     div[data-testid="stFileUploader"] {
         background-color: var(--secondary-background-color) !important;
         border: 2px dashed var(--text-color) !important;
@@ -33,7 +37,6 @@ st.markdown("""
         padding: 10px !important;
     }
 
-    /* Cartões Inteligentes (Dinâmicos conforme o Tema) */
     .card-alerta {
         background-color: var(--secondary-background-color) !important;
         border: 2px solid #ef4444 !important;
@@ -51,19 +54,6 @@ st.markdown("""
         border-radius: 10px !important;
         margin-bottom: 14px !important;
     }
-    
-    .card-alerta h4, .card-seguro h4 {
-        color: var(--text-color) !important;
-        margin-top: 0px !important;
-        font-size: 18px !important;
-        font-weight: 800 !important;
-    }
-    
-    .card-alerta li, .card-seguro li, .card-alerta p, .card-seguro p {
-        color: var(--text-color) !important;
-        font-size: 15px !important;
-        line-height: 1.6 !important;
-    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -80,29 +70,123 @@ def obter_groq_api_key():
 
 API_KEY_GROQ = obter_groq_api_key()
 
-# FUNÇÃO COMPACTADORA DE IMAGEM (Evita HTTP 413)
-def otimizar_e_converter_b64(file_bytes, max_dim=1024, qualidade=75):
+# 4. TRATAMENTO DE IMAGEM: OTIMIZAÇÃO + CORREÇÃO DE ROTAÇÃO EXIF
+def otimizar_e_corrigir_orientacao(file_bytes, max_dim=1024, qualidade=75):
     try:
         img = Image.open(io.BytesIO(file_bytes))
         
-        # Converte para RGB se estiver em RGBA/PNG
+        # Corrigir rotação EXIF de fotos tiradas de celular
+        img = ImageOps.exif_transpose(img)
+        
+        # Converter para RGB se necessário
         if img.mode in ("RGBA", "P"):
             img = img.convert("RGB")
             
-        # Redimensiona mantendo a proporção se for maior que max_dim
+        # Redimensionar mantendo proporção
         img.thumbnail((max_dim, max_dim))
         
-        # Salva em memória comprimido como JPEG
         buffer = io.BytesIO()
         img.save(buffer, format="JPEG", quality=qualidade)
         
-        return base64.b64encode(buffer.getvalue()).decode('utf-8')
+        # Retorna a imagem PIL corrigida para exibição e a string Base64 para a API
+        b64_str = base64.b64encode(buffer.getvalue()).decode('utf-8')
+        return img, b64_str
     except Exception:
-        # Fallback para a conversão direta caso a compressão falhe
-        return base64.b64encode(file_bytes).decode('utf-8')
+        img_raw = Image.open(io.BytesIO(file_bytes))
+        b64_raw = base64.b64encode(file_bytes).decode('utf-8')
+        return img_raw, b64_raw
 
-# 4. Motor de Visão Computacional para Múltiplas Imagens (Groq Qwen 3.6 27B Vision)
-def analisar_lote_escola(imagens_b64_list, nome_escola, municipio, observacoes_gerais):
+# 5. LOCALIZAÇÃO DO DISPOSITIVO & ANÁLISE GEOGRÁFICA DE RISCO
+@st.cache_data(ttl=300)
+def obter_localizacao_ip():
+    try:
+        res = requests.get('https://ipapi.co/json/', timeout=4)
+        if res.status_code == 200:
+            data = res.json()
+            return {
+                "cidade": data.get("city", "Não identificada"),
+                "estado": data.get("region_code", "RS"),
+                "lat": data.get("latitude", -29.91),
+                "lon": data.get("longitude", -50.26)
+            }
+    except Exception:
+        pass
+    return {"cidade": "Osório", "estado": "RS", "lat": -29.88, "lon": -50.26}
+
+# 6. GERAÇÃO DE RELATÓRIO PDF (ReportLab)
+def gerar_pdf_laudo(nome_escola, municipio, endereco_conf, laudo_texto):
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
+    styles = getSampleStyleSheet()
+    
+    # Customização de estilos para o PDF
+    title_style = ParagraphStyle(
+        'DocTitle',
+        parent=styles['Heading1'],
+        fontSize=18,
+        textColor=colors.HexColor("#0f172a"),
+        spaceAfter=12
+    )
+    heading_style = ParagraphStyle(
+        'DocHeading',
+        parent=styles['Heading2'],
+        fontSize=13,
+        textColor=colors.HexColor("#1e293b"),
+        spaceBefore=10,
+        spaceAfter=6
+    )
+    body_style = ParagraphStyle(
+        'DocBody',
+        parent=styles['Normal'],
+        fontSize=10,
+        leading=14,
+        textColor=colors.HexColor("#334155")
+    )
+    
+    story = []
+    
+    # Cabeçalho do Documento
+    story.append(Paragraph("<b>DEFESA CIVIL — PLANO TÁTICO DE RESILIÊNCIA ESCOLAR</b>", title_style))
+    story.append(Spacer(1, 8))
+    
+    info_tabela = [
+        [Paragraph("<b>Estabelecimento:</b>", body_style), Paragraph(nome_escola, body_style)],
+        [Paragraph("<b>Município:</b>", body_style), Paragraph(municipio, body_style)],
+        [Paragraph("<b>Localização Confirmada:</b>", body_style), Paragraph(endereco_conf, body_style)],
+        [Paragraph("<b>Emissão do Laudo:</b>", body_style), Paragraph("Sistema de Inteligência Artificial Escola Resiliente", body_style)]
+    ]
+    t = Table(info_tabela, colWidths=[130, 400])
+    t.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor("#f1f5f9")),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#cbd5e1")),
+        ('PADDING', (0, 0), (-1, -1), 6),
+    ]))
+    story.append(t)
+    story.append(Spacer(1, 14))
+    
+    # Processar Markdown do Laudo para Parágrafos no PDF
+    linhas = laudo_texto.split("\n")
+    for linha in linhas:
+        l = linha.strip()
+        if not l:
+            continue
+        if l.startswith("###") or l.startswith("##"):
+            texto_limpo = l.replace("#", "").strip()
+            story.append(Paragraph(f"<b>{texto_limpo}</b>", heading_style))
+        elif l.startswith("- ") or l.startswith("* "):
+            texto_limpo = l[2:].strip()
+            story.append(Paragraph(f"• {texto_limpo}", body_style))
+            story.append(Spacer(1, 3))
+        else:
+            story.append(Paragraph(l, body_style))
+            story.append(Spacer(1, 4))
+            
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
+
+# 7. MOTOR IA (GROQ QWEN 3.6 27B VISION)
+def analisar_lote_escola(imagens_b64_list, nome_escola, municipio, coords_str, obs_gerais):
     if not API_KEY_GROQ:
         return "⚠️ Chave `GROQ_API_KEY` não foi encontrada nos Secrets do Streamlit."
 
@@ -114,30 +198,30 @@ def analisar_lote_escola(imagens_b64_list, nome_escola, municipio, observacoes_g
 
     prompt_sistema = """
     Você é um Engenheiro Sênior de Defesa Civil especialista em Vistoria de Riscos Estruturais em Escolas.
-    Você receberá um conjunto de fotos cobrindo múltiplos ambientes de uma mesma escola (ex: salas de aula, ginásio, corredores, pátio e/ou planta baixa).
+    Sua missão é gerar um PLANO DE CONTINGÊNCIA TÁTICO E ULTRA-OBJETIVO com foco em ZONAS DE ABRIGO E SEGURANÇA.
 
-    Analise as imagens de forma INTEGRADA e elabore um PLANO DE CONTINGÊNCIA E RESILIÊNCIA ESCOLAR completo em Markdown bem estruturado, com o seguinte padrão:
+    Siga rigorosamente esta estrutura Markdown:
 
-    ### 🏫 1. Resumo da Auditoria Integrada
-    Apresente um panorama geral da infraestrutura observada e nível de resiliência global do estabelecimento.
+    ### 📍 1. Avaliação Geográfica & Riscos do Entorno
+    Baseado nas coordenadas fornecidas e relevo da região, determine os principais riscos ambientais incidentes (ex: enxurradas em baixadas, ventos severos em cumes/áreas abertas, tempestades com granizo).
 
-    ### 🔍 2. Diagnóstico por Ambiente Mapeado
-    Para cada imagem fornecida, identifique o ambiente e enumere as vulnerabilidades físicas (ex: fachadas de vidro, coberturas de fibrocimento/zinco, ausência de laje, árvores de grande porte, desníveis de piso).
+    ### 🔍 2. Análise Detalhada dos Ambientes Anexados
+    Vincule DIRETAMENTE cada foto (ex: Foto 1, Foto 2, Foto 3) ao seu ambiente físico e liste suas características estruturais e fragilidades.
 
-    ### 🛡️ 3. Matriz Tática de Zonas de Abrigo por Evento Extremo
-    Crie uma tabela ou lista clara separando os ambientes da escola em:
-    - **Vendavais / Microexplosões:** [ZONA DE PERIGO A EVITAR] vs [ZONA DE ABRIGO RECOMENDADA]
-    - **Enxurradas / Inundações:** [ZONA DE PERIGO A EVITAR] vs [ZONA DE ELEVAÇÃO RECOMENDADA]
-    - **Granizo Severo:** [ZONA DE PERIGO A EVITAR] vs [ZONA DE PROTEÇÃO RECOMENDADA]
+    ### 🛡️ 3. Matriz Objetiva de Abrigo por Tipo de Emergência
+    Especifique EXATAMENTE para onde mover os alunos e professores em cada situação:
+    - 💨 **Vendaval / Microexplosão (Vento Severo):** [ZONA DE PERIGO A EVITAR] vs [LOCAL EXATO RECOMENDADO PARA ABRIGO]
+    - 🌊 **Enxurrada / Inundação Rápida:** [ZONA DE PERIGO A EVITAR] vs [PONTO EXATO DE ELEVAÇÃO/ABRIGO]
+    - 🧊 **Granizo Severo:** [ZONA DE PERIGO A EVITAR] vs [SALA/CORREDOR SEGURO]
 
-    ### 🚨 4. Plano Prático de Ação e Rota de Evacuação/Abrigo
-    Orientações diretas para a direção, professores e brigada escolar sobre como agir nos primeiros 3 minutos de um alerta.
+    ### 🚨 4. Protocolo Prático de Ação (Ações Imediatas nos primeiros 3 minutos)
+    Instruções diretas para a direção, brigada escolar e professores.
     """
 
     content_payload = [
         {
             "type": "text", 
-            "text": f"Escola: '{nome_escola}' ({municipio}/RS).\nObservações Adicionais do Gestor: '{observacoes_gerais}'.\nAnalise o conjunto de {len(imagens_b64_list)} fotos otimizadas anexadas e gere o laudo completo de resiliência."
+            "text": f"Escola: '{nome_escola}' em '{municipio}' (Coordenadas/Geografia: {coords_str}).\nObservações do Gestor: '{obs_gerais}'.\nAnalise as {len(imagens_b64_list)} fotos anexadas e elabore o laudo tático."
         }
     ]
 
@@ -163,26 +247,60 @@ def analisar_lote_escola(imagens_b64_list, nome_escola, municipio, observacoes_g
         if res.status_code == 200:
             return res.json()['choices'][0]['message']['content']
         else:
-            return f"⚠️ Erro no processamento do lote de imagens (Código HTTP {res.status_code}): {res.text}"
+            return f"⚠️ Erro no processamento da IA (Código HTTP {res.status_code}): {res.text}"
     except Exception as e:
-        return f"⚠️ Erro de conexão com a API do Groq Vision: {e}"
+        return f"⚠️ Erro de conexão com a API de Visão: {e}"
 
-# 5. Painel Lateral (Inputs do Usuário)
-st.sidebar.header("📋 Cadastro do Estabelecimento")
+# =========================================================
+# FLUXO PRINCIPAL DA APLICAÇÃO (TELA PRINCIPAL)
+# =========================================================
 
-nome_escola = st.sidebar.text_input("Nome da Escola:", "EEEB Marquês de Herval")
-municipio = st.sidebar.text_input("Município / RS:", "Osório")
-obs_gerais = st.sidebar.text_area("Observações / Histórico de Eventos Locais:", "Escola próxima a encosta/rio. Ginásio com telha leve.")
+# 1. FORMULÁRIO PRINCIPAL DE CADASTRO
+st.subheader("📋 1. Identificação do Estabelecimento de Ensino")
 
-st.sidebar.markdown("---")
-if API_KEY_GROQ:
-    st.sidebar.success("🤖 Groq Vision IA: **Conectado**")
-else:
-    st.sidebar.error("🤖 Groq Vision IA: **Configure a GROQ_API_KEY**")
+col_f1, col_f2 = st.columns(2)
+with col_f1:
+    nome_escola = st.text_input("Nome Completo da Escola:", "EEEB Marquês de Herval")
+with col_f2:
+    municipio_input = st.text_input("Município / Estado:", "Osório / RS")
 
-# 6. Área Principal
-st.subheader("📸 Registre Todos os Ambientes da Escola")
-st.caption("Selecione fotos de salas de aula, corredores, ginásio, pátio externo e planta baixa de uma só vez.")
+obs_gerais = st.text_area(
+    "Observações Gerais da Estrutura ou Histórico de Eventos Extremos na Escola:",
+    "Escola com ginásio de cobertura metálica leve, salas de aula com janelas de vidro voltadas para o pátio aberto e histórico de ventos fortes."
+)
+
+st.markdown("---")
+
+# 2. LOCALIZAÇÃO DO DISPOSITIVO & CONFIRMAÇÃO
+st.subheader("📍 2. Localização Geográfica & Avaliação do Entorno")
+
+loc_detectada = obter_localizacao_ip()
+
+col_map1, col_map2 = st.columns([1, 1.2])
+
+with col_map1:
+    st.info(f"🌐 **Localização estimada do dispositivo:** {loc_detectada['cidade']} - {loc_detectada['estado']}")
+    confirmar_loc = st.checkbox("Confirmar esta localização para a análise de riscos geográficos do entorno", value=True)
+    
+    if confirmar_loc:
+        lat_final = loc_detectada['lat']
+        lon_final = loc_detectada['lon']
+        coords_str = f"Lat: {lat_final}, Lon: {lon_final}"
+        st.success(f"✅ Localização confirmada: {coords_str}")
+    else:
+        coords_str = f"Município de {municipio_input} (Ajuste manual pelo usuário)"
+        st.warning("⚠️ Usando geolocalização geral do município informado.")
+
+with col_map2:
+    if confirmar_loc:
+        df_mapa = pd.DataFrame({"lat": [loc_detectada['lat']], "lon": [loc_detectada['lon']]})
+        st.map(df_mapa, zoom=13)
+
+st.markdown("---")
+
+# 3. UPLOAD DE FOTOS (COM CORREÇÃO DE ROTAÇÃO EXIF)
+st.subheader("📸 3. Registros Fotográficos dos Ambientes da Escola")
+st.caption("Selecione fotos de salas de aula, corredores, ginásio, pátio externo e planta baixa. O sistema corrige automaticamente a orientação das fotos tiradas no celular.")
 
 arquivos_uploaded = st.file_uploader(
     "Carregue as fotos dos ambientes da escola (Selecione vários arquivos JPG/PNG):", 
@@ -190,32 +308,53 @@ arquivos_uploaded = st.file_uploader(
     accept_multiple_files=True
 )
 
+imagens_processadas = []
+lote_b64 = []
+
 if arquivos_uploaded:
-    st.write(f"📂 **{len(arquivos_uploaded)} ambiente(s) selecionado(s) para análise:**")
+    st.write(f"📂 **{len(arquivos_uploaded)} foto(s) carregada(s):**")
     cols = st.columns(min(len(arquivos_uploaded), 4))
+    
     for i, file in enumerate(arquivos_uploaded):
+        # Trata rotação EXIF e converte
+        img_corrigida, b64_str = otimizar_e_corrigir_orientacao(file.getvalue())
+        lote_b64.append(b64_str)
+        
         with cols[i % 4]:
-            st.image(file, caption=f"Foto {i+1}: {file.name}", use_container_width=True)
+            st.image(img_corrigida, caption=f"Foto {i+1}: {file.name}", use_container_width=True)
 
 st.markdown("---")
 
-st.subheader("🛡️ Laudo Técnico Unificado de Resiliência & Zonas de Abrigo")
+# 4. AUDITORIA & GERAÇÃO DE LAUDO / PDF
+st.subheader("🛡️ 4. Laudo Técnico Tático & Plano de Contingência Escolar")
 
 if arquivos_uploaded:
-    if st.button("🚨 Processar Auditoria Completa da Escola (IA Multimodal)", type="primary"):
-        with st.spinner(f"Otimizando {len(arquivos_uploaded)} imagens e enviando lote para auditoria com IA Vision..."):
-            lote_b64 = [otimizar_e_converter_b64(f.getvalue()) for f in arquivos_uploaded]
-            laudo_completo = analisar_lote_escola(lote_b64, nome_escola, municipio, obs_gerais)
+    if st.button("🚨 Gerar Plano Tático de Abrigo & Relatório PDF (IA)", type="primary"):
+        with st.spinner("Analisando topografia, fotos corrigidas e zonas de abrigo..."):
+            laudo_completo = analisar_lote_escola(lote_b64, nome_escola, municipio_input, coords_str, obs_gerais)
             st.session_state["laudo_unificado"] = laudo_completo
+            
+            # Gera o PDF em memória
+            pdf_bytes = gerar_pdf_laudo(nome_escola, municipio_input, coords_str, laudo_completo)
+            st.session_state["pdf_bytes"] = pdf_bytes
 
     if "laudo_unificado" in st.session_state and st.session_state["laudo_unificado"]:
         st.markdown(st.session_state["laudo_unificado"])
+        
+        st.markdown("---")
+        if "pdf_bytes" in st.session_state:
+            st.download_button(
+                label="📄 Baixar Relatório Oficial em PDF (Para Arquivo & Divulgação)",
+                data=st.session_state["pdf_bytes"],
+                file_name=f"Plano_Resiliencia_Escolar_{nome_escola.replace(' ', '_')}.pdf",
+                mime="application/pdf"
+            )
 else:
-    st.info("👈 Faça o upload das fotos dos ambientes da escola acima para gerar o laudo integrado.")
+    st.info("👈 Faça o upload das fotos dos ambientes da escola acima para habilitar o diagnóstico da IA e a emissão do PDF.")
 
 st.markdown("---")
 
-# 7. Guia Rápido com Cores Adaptáveis
+# 5. GUIA RÁPIDO VISUAL
 st.subheader("🚨 Guia de Diretrizes Rápidas da Defesa Civil")
 c1, c2, c3 = st.columns(3)
 
@@ -254,3 +393,4 @@ with c3:
         </ul>
     </div>
     """, unsafe_allow_html=True)
+        
