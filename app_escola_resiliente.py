@@ -1,14 +1,14 @@
 import streamlit as st
-import streamlit.components.v1 as components
 import pandas as pd
 import requests
 import base64
 import os
 import re
+import html
 from PIL import Image, ImageOps
 import io
 
-# ReportLab para geração do PDF Oficial RS sem rascunhos e com fontes amplas
+# ReportLab para geração do PDF Oficial RS sem erros de HTML
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable, Image as RLImage
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -130,12 +130,12 @@ def gerar_imagem_mapa(lat, lon):
         pass
     return None
 
-# FUNÇÃO PURIFICADORA RIGOROSA: DELETA RACIOCÍNIO EM INGLÊS E ARTEFATOS
+# FUNÇÃO PURIFICADORA SEGURA (Evita crash no ReportLab)
 def purificar_texto_laudo(texto_bruto):
     if not texto_bruto:
         return ""
     
-    # 1. Elimina qualquer texto de raciocínio prévio (Search for Section 1 Title)
+    # 1. Elimina texto de raciocínio prévio em inglês
     match_inicio = re.search(r'(1\.\s*Diagnóstico\s*Geográfico.*)', texto_bruto, re.DOTALL | re.IGNORECASE)
     if match_inicio:
         texto_bruto = match_inicio.group(1)
@@ -144,18 +144,38 @@ def purificar_texto_laudo(texto_bruto):
         if match_alt:
             texto_bruto = match_alt.group(1)
 
-    # 2. Remove tags residuais ou lixo de raciocínio
+    # 2. Limpa tags ou marcadores indesejados
     texto_bruto = re.sub(r'(?i)(analyze user input|deconstruct|thinking process|draft).*?\n\n', '', texto_bruto, flags=re.DOTALL)
     
-    # 3. Limpa formatação Markdown para compatibilidade com o ReportLab
-    texto = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', texto_bruto)
-    texto = re.sub(r'\*(.*?)\*', r'<i>\1</i>', texto)
-    texto = re.sub(r'#+\s*', '', texto)
-    texto = texto.replace("■", "").replace("•", "").replace("`", "").strip()
+    # 3. Escapa HTML perigoso antes de aplicar negrito/itálico do Markdown
+    texto_linhas = texto_bruto.split('\n')
+    linhas_processadas = []
     
-    return texto
+    for l in texto_linhas:
+        l_str = l.strip()
+        if not l_str:
+            continue
+            
+        # Converte Markdown para tags seguras
+        l_str = re.sub(r'\*\*(.*?)\*\*', r'__BOLD_START__\1__BOLD_END__', l_str)
+        l_str = re.sub(r'\*(.*?)\*', r'__ITALIC_START__\1__ITALIC_END__', l_str)
+        
+        # Escapa caracteres como < e >
+        l_str = html.escape(l_str)
+        
+        # Restaura as tags seguras
+        l_str = l_str.replace('__BOLD_START__', '<b>').replace('__BOLD_END__', '</b>')
+        l_str = l_str.replace('__ITALIC_START__', '<i>').replace('__ITALIC_END__', '</i>')
+        
+        # Remove marcas brutas
+        l_str = re.sub(r'^#+\s*', '', l_str)
+        l_str = l_str.replace("■", "").replace("•", "").replace("`", "").strip()
+        
+        linhas_processadas.append(l_str)
+        
+    return "\n".join(linhas_processadas)
 
-# 6. GERADOR DE PDF COM LAYOUT OFICIAL DO RS E FONTES EXPANDIDAS
+# 6. GERADOR DE PDF
 def gerar_pdf_estilo_oficial_rs(nome_escola, municipio, dados_geo, laudo_texto, fotos_bytes, mapa_bytes):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -170,7 +190,6 @@ def gerar_pdf_estilo_oficial_rs(nome_escola, municipio, dados_geo, laudo_texto, 
     CINZA_FUNDO = colors.HexColor("#f8fafc")
     TEXTO_ESCURO = colors.HexColor("#0f172a")
     
-    # Fontes em tamanho ampliado (11pt no corpo / 13pt nos títulos)
     style_header_title = ParagraphStyle(
         'HeaderTitle', parent=styles['Heading1'],
         fontSize=14, leading=18, textColor=colors.HexColor("#ffffff"), fontName="Helvetica-Bold", alignment=1
@@ -190,7 +209,7 @@ def gerar_pdf_estilo_oficial_rs(nome_escola, municipio, dados_geo, laudo_texto, 
 
     story = []
 
-    # Banner Superior Institucional (Barra Vermelha)
+    # Banner Superior
     banner_data = [[Paragraph("<b>DEFESA CIVIL — RELATÓRIO TÁTICO ESCOLA SEGURA (RS)</b>", style_header_title)]]
     t_banner = Table(banner_data, colWidths=[540])
     t_banner.setStyle(TableStyle([
@@ -215,10 +234,10 @@ def gerar_pdf_estilo_oficial_rs(nome_escola, municipio, dados_geo, laudo_texto, 
     story.append(Paragraph("<b>1. DADOS DE IDENTIFICAÇÃO E LOCALIZAÇÃO DO PONTO EXATO</b>", style_sec_title))
     
     dados_id = [
-        [Paragraph("<b>Nome do Estabelecimento:</b>", style_cell_header), Paragraph(nome_escola, style_cell_body)],
-        [Paragraph("<b>Município / Estado:</b>", style_cell_header), Paragraph(municipio, style_cell_body)],
-        [Paragraph("<b>Microlocalização Geocodificada:</b>", style_cell_header), Paragraph(dados_geo['endereco'], style_cell_body)],
-        [Paragraph("<b>Altitude do Terreno:</b>", style_cell_header), Paragraph(dados_geo['altitude'], style_cell_body)],
+        [Paragraph("<b>Nome do Estabelecimento:</b>", style_cell_header), Paragraph(html.escape(nome_escola), style_cell_body)],
+        [Paragraph("<b>Município / Estado:</b>", style_cell_header), Paragraph(html.escape(municipio), style_cell_body)],
+        [Paragraph("<b>Microlocalização Geocodificada:</b>", style_cell_header), Paragraph(html.escape(dados_geo['endereco']), style_cell_body)],
+        [Paragraph("<b>Altitude do Terreno:</b>", style_cell_header), Paragraph(html.escape(dados_geo['altitude']), style_cell_body)],
         [Paragraph("<b>Emissão do Laudo:</b>", style_cell_header), Paragraph("Plataforma Digital Escola Segura (Auditoria Técnica)", style_cell_body)]
     ]
     t_id = Table(dados_id, colWidths=[160, 380])
@@ -239,27 +258,32 @@ def gerar_pdf_estilo_oficial_rs(nome_escola, municipio, dados_geo, laudo_texto, 
         story.append(rl_mapa)
         story.append(Spacer(1, 10))
 
-    # Diagnóstico Técnico Purificado
+    # Diagnóstico Técnico
     story.append(Paragraph("<b>2. DIAGNÓSTICO DE RISCO E RECOMENDAÇÕES TÁTICAS DE ABRIGO</b>", style_sec_title))
     
     texto_purificado = purificar_texto_laudo(laudo_texto)
     linhas = texto_purificado.split("\n")
     
-    for linha in linhas:
-        l = linha.strip()
+    for l in linhas:
         if not l or "analyze" in l.lower() or "draft" in l.lower():
             continue
             
-        if l.startswith("1.") or l.startswith("2.") or l.startswith("3.") or l.startswith("4."):
-            story.append(Spacer(1, 6))
-            story.append(Paragraph(f"<b>{l}</b>", style_sec_title))
-            story.append(HRFlowable(width="100%", thickness=1, color=VERMELHO_RS, spaceAfter=4))
-        elif l.startswith("- ") or l.startswith("* "):
-            texto_item = l.lstrip("-* ").strip()
-            story.append(Paragraph(f"• {texto_item}", style_cell_body))
-            story.append(Spacer(1, 2))
-        else:
-            story.append(Paragraph(l, style_cell_body))
+        try:
+            if l.startswith("1.") or l.startswith("2.") or l.startswith("3.") or l.startswith("4."):
+                story.append(Spacer(1, 6))
+                story.append(Paragraph(f"<b>{l}</b>", style_sec_title))
+                story.append(HRFlowable(width="100%", thickness=1, color=VERMELHO_RS, spaceAfter=4))
+            elif l.startswith("- ") or l.startswith("* "):
+                texto_item = l.lstrip("-* ").strip()
+                story.append(Paragraph(f"• {texto_item}", style_cell_body))
+                story.append(Spacer(1, 2))
+            else:
+                story.append(Paragraph(l, style_cell_body))
+                story.append(Spacer(1, 3))
+        except Exception:
+            # Fallback seguro contra erros de parser
+            texto_limpo_plano = re.sub(r'<[^>]+>', '', l)
+            story.append(Paragraph(texto_limpo_plano, style_cell_body))
             story.append(Spacer(1, 3))
 
     # Fotos Vistoriadas no PDF
@@ -298,7 +322,7 @@ def gerar_pdf_estilo_oficial_rs(nome_escola, municipio, dados_geo, laudo_texto, 
     buffer.seek(0)
     return buffer
 
-# 7. MOTOR IA COM INSTRUÇÕES RÍGIDAS DE SAÍDA DIRETA
+# 7. MOTOR IA
 def analisar_lote_escola(imagens_b64_list, nome_escola, municipio, dados_geo_exatos, obs_gerais):
     if not API_KEY_GROQ:
         return "⚠️ Chave `GROQ_API_KEY` não foi encontrada nos Secrets do Streamlit."
@@ -391,7 +415,7 @@ with col_f2:
 
 obs_gerais = st.text_area(
     "Observações Gerais da Estrutura ou Histórico de Eventos Extremos na Escola:",
-    "Escola com ginásio de cobertura metálica leve, salas de aula com janelas de vidro voltadas para o pátio aberto e histórico de tempestades fortes."
+    "."
 )
 
 st.markdown("---")
@@ -457,10 +481,10 @@ if arquivos_uploaded:
             laudo_completo = analisar_lote_escola(lote_b64, nome_escola, municipio_input, geo_payload, obs_gerais)
             st.session_state["laudo_unificado"] = laudo_completo
             
-            # Gera imagem do mapa estático para anexo no PDF
+            # Gera imagem do mapa estático
             mapa_bytes = gerar_imagem_mapa(lat_input, lon_input)
             
-            # Gera o PDF oficial do RS
+            # Gera o PDF oficial do RS com purificação de HTML
             pdf_bytes = gerar_pdf_estilo_oficial_rs(
                 nome_escola, municipio_input, geo_payload, laudo_completo, fotos_raw_list, mapa_bytes
             )
@@ -492,32 +516,4 @@ with c1:
         <h4>💨 Vendavais & Microexplosões</h4>
         <ul>
             <li><b>Evitar:</b> Ginásios, auditórios e salas com janelas amplas.</li>
-            <li><b>Ação:</b> Mover alunos para corredores internos com laje sólida.</li>
-            <li><b>Posição:</b> Agachar de costas para aberturas, cobrindo a cabeça.</li>
-        </ul>
-    </div>
-    """, unsafe_allow_html=True)
-
-with c2:
-    st.markdown("""
-    <div class="card-alerta">
-        <h4>🌊 Enxurradas Rápidas</h4>
-        <ul>
-            <li><b>Evitar:</b> Térreo, pátios rebaixados e subsolos.</li>
-            <li><b>Ação:</b> Evacuação vertical imediata para o 2º pavimento.</li>
-            <li><b>Energia:</b> Desligar chave geral antes que a água atinja tomadas.</li>
-        </ul>
-    </div>
-    """, unsafe_allow_html=True)
-
-with c3:
-    st.markdown("""
-    <div class="card-seguro">
-        <h4>🛡️ Procedimento de Simulado</h4>
-        <ul>
-            <li><b>Frequência:</b> Realizar simulados a cada semestre.</li>
-            <li><b>Alarmes:</b> Definir sons diferentes para Evacuação vs. Abrigo.</li>
-            <li><b>Rotas:</b> Manter corredores livres de obstáculos.</li>
-        </ul>
-    </div>
-    """, unsafe_allow_html=True)
+            <li><b>Ação:</b> Mover alunos para 
