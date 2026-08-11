@@ -8,7 +8,7 @@ import html
 from PIL import Image, ImageOps
 import io
 
-# ReportLab para geração do PDF Oficial RS sem erros de HTML
+# ReportLab para geração do PDF Oficial RS
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable, Image as RLImage
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -130,12 +130,12 @@ def gerar_imagem_mapa(lat, lon):
         pass
     return None
 
-# FUNÇÃO PURIFICADORA SEGURA (Evita crash no ReportLab)
+# FUNÇÃO PURIFICADORA DE TEXTO
 def purificar_texto_laudo(texto_bruto):
     if not texto_bruto:
         return ""
     
-    # 1. Elimina texto de raciocínio prévio em inglês
+    # Elimina texto de raciocínio prévio em inglês
     match_inicio = re.search(r'(1\.\s*Diagnóstico\s*Geográfico.*)', texto_bruto, re.DOTALL | re.IGNORECASE)
     if match_inicio:
         texto_bruto = match_inicio.group(1)
@@ -144,10 +144,8 @@ def purificar_texto_laudo(texto_bruto):
         if match_alt:
             texto_bruto = match_alt.group(1)
 
-    # 2. Limpa tags ou marcadores indesejados
     texto_bruto = re.sub(r'(?i)(analyze user input|deconstruct|thinking process|draft).*?\n\n', '', texto_bruto, flags=re.DOTALL)
     
-    # 3. Escapa HTML perigoso antes de aplicar negrito/itálico do Markdown
     texto_linhas = texto_bruto.split('\n')
     linhas_processadas = []
     
@@ -156,18 +154,14 @@ def purificar_texto_laudo(texto_bruto):
         if not l_str:
             continue
             
-        # Converte Markdown para tags seguras
         l_str = re.sub(r'\*\*(.*?)\*\*', r'__BOLD_START__\1__BOLD_END__', l_str)
         l_str = re.sub(r'\*(.*?)\*', r'__ITALIC_START__\1__ITALIC_END__', l_str)
         
-        # Escapa caracteres como < e >
         l_str = html.escape(l_str)
         
-        # Restaura as tags seguras
         l_str = l_str.replace('__BOLD_START__', '<b>').replace('__BOLD_END__', '</b>')
         l_str = l_str.replace('__ITALIC_START__', '<i>').replace('__ITALIC_END__', '</i>')
         
-        # Remove marcas brutas
         l_str = re.sub(r'^#+\s*', '', l_str)
         l_str = l_str.replace("■", "").replace("•", "").replace("`", "").strip()
         
@@ -281,7 +275,6 @@ def gerar_pdf_estilo_oficial_rs(nome_escola, municipio, dados_geo, laudo_texto, 
                 story.append(Paragraph(l, style_cell_body))
                 story.append(Spacer(1, 3))
         except Exception:
-            # Fallback seguro contra erros de parser
             texto_limpo_plano = re.sub(r'<[^>]+>', '', l)
             story.append(Paragraph(texto_limpo_plano, style_cell_body))
             story.append(Spacer(1, 3))
@@ -415,7 +408,8 @@ with col_f2:
 
 obs_gerais = st.text_area(
     "Observações Gerais da Estrutura ou Histórico de Eventos Extremos na Escola:",
-    "."
+    value="",
+    placeholder="Informe aqui se houver histórico de alagamentos, problemas no telhado, árvores de grande porte no entorno, etc."
 )
 
 st.markdown("---")
@@ -516,4 +510,16 @@ with c1:
         <h4>💨 Vendavais & Microexplosões</h4>
         <ul>
             <li><b>Evitar:</b> Ginásios, auditórios e salas com janelas amplas.</li>
-            <li><b>Ação:</b> Mover alunos para 
+            <li><b>Ação:</b> Mover alunos para corredores internos com laje sólida.</li>
+            <li><b>Posição:</b> Agachar de costas para aberturas, cobrindo a cabeça.</li>
+        </ul>
+    </div>
+    """, unsafe_allow_html=True)
+
+with c2:
+    st.markdown("""
+    <div class="card-alerta">
+        <h4>🌊 Enxurradas Rápidas</h4>
+        <ul>
+            <li><b>Evitar:</b> Térreo, pátios rebaixados e subsolos.</li>
+   
