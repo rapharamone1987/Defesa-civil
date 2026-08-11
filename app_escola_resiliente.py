@@ -7,7 +7,7 @@ import re
 from PIL import Image, ImageOps
 import io
 
-# ReportLab para geração do PDF Oficial com Fontes Adequadas, Imagens e Mapa
+# ReportLab para geração do PDF Oficial sem rascunhos e com fontes amplias
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable, Image as RLImage
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -118,7 +118,7 @@ def obter_detalhes_geograficos_exatos(lat, lon):
         
     return detalhes
 
-# Gerador do Mapa Estático em Imagem para o PDF
+# Gerador do Mapa Estático para o PDF
 def gerar_imagem_mapa(lat, lon):
     try:
         url = f"https://static-maps.yandex.ru/1.x/?lang=pt_BR&ll={lon},{lat}&z=15&l=map&pt={lon},{lat},pm2rdm"
@@ -129,16 +129,28 @@ def gerar_imagem_mapa(lat, lon):
         pass
     return None
 
-# Função Limpadora de Marcações Brutas do Markdown
-def limpar_formatacao_texto(texto):
-    texto = re.sub(r'Here\'s a thinking process.*', '', texto, flags=re.DOTALL) # Remove vazamento de pensamento da IA
-    texto = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', texto)
+# FUNÇÃO PURIFICADORA DE TEXTO (ELIMINA INGLÊS E RACIOCÍNIO VAZADO DA IA)
+def purificar_texto_laudo(texto_bruto):
+    if not texto_bruto:
+        return ""
+    
+    # 1. Corta qualquer texto antes da primeira seção numerada oficial
+    pos_inicio = re.search(r'###?\s*1\.|1\.\s*Diagnóstico', texto_bruto, re.IGNORECASE)
+    if pos_inicio:
+        texto_bruto = texto_bruto[pos_inicio.start():]
+        
+    # 2. Remove blocos conhecidos de raciocínio em inglês
+    texto_bruto = re.sub(r'(?i)(analyze user input|deconstruct mandatory structure|draft|thinking process).*?\n\n', '', texto_bruto, flags=re.DOTALL)
+    
+    # 3. Converte Markdown básico para tags HTML compatíveis com o ReportLab
+    texto = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', texto_bruto)
     texto = re.sub(r'\*(.*?)\*', r'<i>\1</i>', texto)
     texto = re.sub(r'#+\s*', '', texto)
     texto = texto.replace("■", "").replace("•", "").strip()
+    
     return texto
 
-# 6. GERADOR DE PDF COM FONTES EXPANDIDAS E ESTILO RS
+# 6. GERADOR DE PDF COM FONTES EXPANDIDAS E LAYOUT OFICIAL RS
 def gerar_pdf_estilo_oficial_rs(nome_escola, municipio, dados_geo, laudo_texto, fotos_bytes, mapa_bytes):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -153,7 +165,7 @@ def gerar_pdf_estilo_oficial_rs(nome_escola, municipio, dados_geo, laudo_texto, 
     CINZA_FUNDO = colors.HexColor("#f8fafc")
     TEXTO_ESCURO = colors.HexColor("#0f172a")
     
-    # Fontes Aumentadas para Garantir Leitura Perfeita no PDF
+    # Fontes em tamanho ampliado (11pt corpo / 13pt títulos)
     style_header_title = ParagraphStyle(
         'HeaderTitle', parent=styles['Heading1'],
         fontSize=14, leading=18, textColor=colors.HexColor("#ffffff"), fontName="Helvetica-Bold", alignment=1
@@ -168,7 +180,7 @@ def gerar_pdf_estilo_oficial_rs(nome_escola, municipio, dados_geo, laudo_texto, 
     )
     style_cell_body = ParagraphStyle(
         'CellBody', parent=styles['Normal'],
-        fontSize=10, leading=14, textColor=TEXTO_ESCURO, fontName="Helvetica"
+        fontSize=10.5, leading=14.5, textColor=TEXTO_ESCURO, fontName="Helvetica"
     )
 
     story = []
@@ -222,26 +234,27 @@ def gerar_pdf_estilo_oficial_rs(nome_escola, municipio, dados_geo, laudo_texto, 
         story.append(rl_mapa)
         story.append(Spacer(1, 10))
 
-    # Diagnóstico Técnico Limpo de Markdown
+    # Diagnóstico Técnico Purificado
     story.append(Paragraph("<b>2. DIAGNÓSTICO DE RISCO E RECOMENDAÇÕES TÁTICAS DE ABRIGO</b>", style_sec_title))
     
-    linhas = laudo_texto.split("\n")
+    texto_purificado = purificar_texto_laudo(laudo_texto)
+    linhas = texto_purificado.split("\n")
+    
     for linha in linhas:
         l = linha.strip()
-        if not l or "thinking process" in l.lower() or "need to" in l.lower():
+        if not l:
             continue
-        l_limpa = limpar_formatacao_texto(l)
-        
-        if l.startswith("###") or l.startswith("##") or l.startswith("1.") or l.startswith("2.") or l.startswith("3.") or l.startswith("4."):
-            story.append(Spacer(1, 4))
-            story.append(Paragraph(f"<b>{l_limpa}</b>", style_sec_title))
+            
+        if l.startswith("1.") or l.startswith("2.") or l.startswith("3.") or l.startswith("4."):
+            story.append(Spacer(1, 6))
+            story.append(Paragraph(f"<b>{l}</b>", style_sec_title))
             story.append(HRFlowable(width="100%", thickness=1, color=VERMELHO_RS, spaceAfter=4))
         elif l.startswith("- ") or l.startswith("* "):
-            texto_item = l_limpa.lstrip("-* ").strip()
+            texto_item = l.lstrip("-* ").strip()
             story.append(Paragraph(f"• {texto_item}", style_cell_body))
             story.append(Spacer(1, 2))
         else:
-            story.append(Paragraph(l_limpa, style_cell_body))
+            story.append(Paragraph(l, style_cell_body))
             story.append(Spacer(1, 3))
 
     # Fotos Vistoriadas no PDF
@@ -280,7 +293,7 @@ def gerar_pdf_estilo_oficial_rs(nome_escola, municipio, dados_geo, laudo_texto, 
     buffer.seek(0)
     return buffer
 
-# 7. MOTOR IA BLINDADO (PROIBIÇÃO TOTAL DE INGLÊS E PENSAMENTO INTERNO)
+# 7. MOTOR IA COM BLOQUEIO DE RACIOCÍNIO INTERNO
 def analisar_lote_escola(imagens_b64_list, nome_escola, municipio, dados_geo_exatos, obs_gerais):
     if not API_KEY_GROQ:
         return "⚠️ Chave `GROQ_API_KEY` não foi encontrada nos Secrets do Streamlit."
@@ -293,29 +306,28 @@ def analisar_lote_escola(imagens_b64_list, nome_escola, municipio, dados_geo_exa
 
     prompt_sistema = """
     Você é um Engenheiro Sênior da Defesa Civil do Rio Grande do Sul e está emitindo um LAUDO TÉCNICO OFICIAL DE SEGURANÇA ESCOLAR.
-    
-    DIRETRIZES DE SAÍDA:
+
+    REGRAS INVIOLÁVEIS:
     1. Responda EXCLUSIVAMENTE em Português do Brasil.
-    2. É ESTRITAMENTE PROIBIDO incluir textos de raciocínio prévio em inglês (ex: 'thinking process', 'drafting', 'here is my analysis').
-    3. NÃO inclua metalinguagem, explicações de premissa ou ressalvas sobre os arquivos enviados. Trate as imagens rigorosamente como dependências físicas do estabelecimento.
-    4. Vá DIRETO para o laudo técnico oficial.
+    2. NUNCA escreva textos de raciocínio, reflexão ou planejamento prévio em inglês.
+    3. NUNCA mencione termos do prompt ou observações sobre o tipo de cômodo. Escreva diretamente o laudo técnico institucional.
 
-    ESTRUTURA Markdown OBRIGATÓRIA:
+    ESTRUTURA OBRIGATÓRIA DA SAÍDA:
 
-    ### 1. Diagnóstico Geográfico da Microlocalização Exata
+    1. Diagnóstico Geográfico da Microlocalização Exata
     Avalie o ponto exato das coordenadas ({coords}) e altitude ({altitude}). Descreva o risco geomorfológico específico de enxurradas e ventos severos no terreno.
 
-    ### 2. Auditoria Detalhada dos Ambientes Anexados
+    2. Auditoria Detalhada dos Ambientes Anexados
     Para cada uma das {num_fotos} foto(s) anexadas:
-    - **Foto X:** Identifique o ambiente e detalhe a vulnerabilidade dos materiais (vidros, cobertura, vigas).
+    - Foto X: Identifique o ambiente e detalhe a vulnerabilidade dos materiais (vidros, cobertura, vigas).
 
-    ### 3. Matriz Tática de Abrigo e Posicionamento Espacial
+    3. Matriz Tática de Abrigo e Posicionamento Espacial
     Especifique a LOCALIZAÇÃO EXATA no espaço físico da foto onde alunos e professores devem se abrigar:
     - Vendavais / Microexplosões: Indique em qual parede interna, abaixo de qual peitoril ou em qual canto oposto às janelas as pessoas devem se posicionar.
     - Enxurradas Rápidas: Indique qual escadaria ou pavimento superior utilizar.
     - Granizo Severo: Indique os pontos protegidos por laje sólida.
 
-    ### 4. Plano de Ação Imediata (Primeiros 3 Minutos)
+    4. Plano de Ação Imediata (Primeiros 3 Minutos)
     Instruções operacionais diretas para a equipe escolar em tópicos objetivos.
     """
 
@@ -353,10 +365,7 @@ def analisar_lote_escola(imagens_b64_list, nome_escola, municipio, dados_geo_exa
         res = requests.post(url, json=payload, headers=headers, timeout=40)
         if res.status_code == 200:
             conteudo = res.json()['choices'][0]['message']['content']
-            # Filtro adicional de limpeza caso o modelo tente vazar metadados
-            if "thinking process" in conteudo.lower():
-                conteudo = re.sub(r'(?i)here\'s a thinking process.*?(### 1.|\n1\.)', r'\1', conteudo, flags=re.DOTALL)
-            return conteudo
+            return purificar_texto_laudo(conteudo)
         else:
             return f"⚠️ Erro no processamento da IA (Código HTTP {res.status_code}): {res.text}"
     except Exception as e:
@@ -435,14 +444,14 @@ st.subheader("🛡️ 4. Laudo Técnico Tático & Plano de Contingência Escolar
 
 if arquivos_uploaded:
     if st.button("🚨 Gerar Plano Tático de Abrigo & Relatório PDF (IA)", type="primary"):
-        with st.spinner("Analisando fotos, gerando mapa estático e compilando PDF oficial..."):
+        with st.spinner("Analisando fotos, purificando texto e compilando PDF oficial..."):
             laudo_completo = analisar_lote_escola(lote_b64, nome_escola, municipio_input, geo_payload, obs_gerais)
             st.session_state["laudo_unificado"] = laudo_completo
             
             # Gerar imagem do mapa para anexo
             mapa_bytes = gerar_imagem_mapa(lat_input, lon_input)
             
-            # Gerar PDF limpo e formatado
+            # Gerar PDF limpo
             pdf_bytes = gerar_pdf_estilo_oficial_rs(
                 nome_escola, municipio_input, geo_payload, laudo_completo, fotos_raw_list, mapa_bytes
             )
