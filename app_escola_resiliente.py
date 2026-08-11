@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import requests
 import base64
@@ -7,7 +8,7 @@ import re
 from PIL import Image, ImageOps
 import io
 
-# ReportLab para geração do PDF Oficial sem rascunhos e com fontes amplias
+# ReportLab para geração do PDF Oficial RS sem rascunhos e com fontes amplas
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable, Image as RLImage
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -89,7 +90,7 @@ def otimizar_e_corrigir_orientacao(file_bytes, max_dim=1024, qualidade=80):
         return img_raw, b64_raw, file_bytes
 
 # 5. Geocodificação Exata
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=300)
 def obter_detalhes_geograficos_exatos(lat, lon):
     detalhes = {
         "endereco_completo": f"Latitude {lat:.6f}, Longitude {lon:.6f}",
@@ -129,28 +130,32 @@ def gerar_imagem_mapa(lat, lon):
         pass
     return None
 
-# FUNÇÃO PURIFICADORA DE TEXTO (ELIMINA INGLÊS E RACIOCÍNIO VAZADO DA IA)
+# FUNÇÃO PURIFICADORA RIGOROSA: DELETA RACIOCÍNIO EM INGLÊS E ARTEFATOS
 def purificar_texto_laudo(texto_bruto):
     if not texto_bruto:
         return ""
     
-    # 1. Corta qualquer texto antes da primeira seção numerada oficial
-    pos_inicio = re.search(r'###?\s*1\.|1\.\s*Diagnóstico', texto_bruto, re.IGNORECASE)
-    if pos_inicio:
-        texto_bruto = texto_bruto[pos_inicio.start():]
-        
-    # 2. Remove blocos conhecidos de raciocínio em inglês
-    texto_bruto = re.sub(r'(?i)(analyze user input|deconstruct mandatory structure|draft|thinking process).*?\n\n', '', texto_bruto, flags=re.DOTALL)
+    # 1. Elimina qualquer texto de raciocínio prévio (Search for Section 1 Title)
+    match_inicio = re.search(r'(1\.\s*Diagnóstico\s*Geográfico.*)', texto_bruto, re.DOTALL | re.IGNORECASE)
+    if match_inicio:
+        texto_bruto = match_inicio.group(1)
+    else:
+        match_alt = re.search(r'(###?\s*1\..*)', texto_bruto, re.DOTALL | re.IGNORECASE)
+        if match_alt:
+            texto_bruto = match_alt.group(1)
+
+    # 2. Remove tags residuais ou lixo de raciocínio
+    texto_bruto = re.sub(r'(?i)(analyze user input|deconstruct|thinking process|draft).*?\n\n', '', texto_bruto, flags=re.DOTALL)
     
-    # 3. Converte Markdown básico para tags HTML compatíveis com o ReportLab
+    # 3. Limpa formatação Markdown para compatibilidade com o ReportLab
     texto = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', texto_bruto)
     texto = re.sub(r'\*(.*?)\*', r'<i>\1</i>', texto)
     texto = re.sub(r'#+\s*', '', texto)
-    texto = texto.replace("■", "").replace("•", "").strip()
+    texto = texto.replace("■", "").replace("•", "").replace("`", "").strip()
     
     return texto
 
-# 6. GERADOR DE PDF COM FONTES EXPANDIDAS E LAYOUT OFICIAL RS
+# 6. GERADOR DE PDF COM LAYOUT OFICIAL DO RS E FONTES EXPANDIDAS
 def gerar_pdf_estilo_oficial_rs(nome_escola, municipio, dados_geo, laudo_texto, fotos_bytes, mapa_bytes):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -165,7 +170,7 @@ def gerar_pdf_estilo_oficial_rs(nome_escola, municipio, dados_geo, laudo_texto, 
     CINZA_FUNDO = colors.HexColor("#f8fafc")
     TEXTO_ESCURO = colors.HexColor("#0f172a")
     
-    # Fontes em tamanho ampliado (11pt corpo / 13pt títulos)
+    # Fontes em tamanho ampliado (11pt no corpo / 13pt nos títulos)
     style_header_title = ParagraphStyle(
         'HeaderTitle', parent=styles['Heading1'],
         fontSize=14, leading=18, textColor=colors.HexColor("#ffffff"), fontName="Helvetica-Bold", alignment=1
@@ -242,7 +247,7 @@ def gerar_pdf_estilo_oficial_rs(nome_escola, municipio, dados_geo, laudo_texto, 
     
     for linha in linhas:
         l = linha.strip()
-        if not l:
+        if not l or "analyze" in l.lower() or "draft" in l.lower():
             continue
             
         if l.startswith("1.") or l.startswith("2.") or l.startswith("3.") or l.startswith("4."):
@@ -293,7 +298,7 @@ def gerar_pdf_estilo_oficial_rs(nome_escola, municipio, dados_geo, laudo_texto, 
     buffer.seek(0)
     return buffer
 
-# 7. MOTOR IA COM BLOQUEIO DE RACIOCÍNIO INTERNO
+# 7. MOTOR IA COM INSTRUÇÕES RÍGIDAS DE SAÍDA DIRETA
 def analisar_lote_escola(imagens_b64_list, nome_escola, municipio, dados_geo_exatos, obs_gerais):
     if not API_KEY_GROQ:
         return "⚠️ Chave `GROQ_API_KEY` não foi encontrada nos Secrets do Streamlit."
@@ -308,27 +313,27 @@ def analisar_lote_escola(imagens_b64_list, nome_escola, municipio, dados_geo_exa
     Você é um Engenheiro Sênior da Defesa Civil do Rio Grande do Sul e está emitindo um LAUDO TÉCNICO OFICIAL DE SEGURANÇA ESCOLAR.
 
     REGRAS INVIOLÁVEIS:
-    1. Responda EXCLUSIVAMENTE em Português do Brasil.
-    2. NUNCA escreva textos de raciocínio, reflexão ou planejamento prévio em inglês.
-    3. NUNCA mencione termos do prompt ou observações sobre o tipo de cômodo. Escreva diretamente o laudo técnico institucional.
+    1. Escreva a resposta DIRETA em Português do Brasil.
+    2. NUNCA gere introduções em inglês, rascunhos, análises do prompt ou frases como "Analyze User Input".
+    3. Comece a resposta IMEDIATAMENTE pelo título "1. Diagnóstico Geográfico da Microlocalização Exata".
 
-    ESTRUTURA OBRIGATÓRIA DA SAÍDA:
+    ESTRUTURA DA RESPOSTA:
 
     1. Diagnóstico Geográfico da Microlocalização Exata
-    Avalie o ponto exato das coordenadas ({coords}) e altitude ({altitude}). Descreva o risco geomorfológico específico de enxurradas e ventos severos no terreno.
+    Avalie a vulnerabilidade geotécnica e hidrológica das coordenadas ({coords}) e altitude ({altitude}).
 
     2. Auditoria Detalhada dos Ambientes Anexados
-    Para cada uma das {num_fotos} foto(s) anexadas:
-    - Foto X: Identifique o ambiente e detalhe a vulnerabilidade dos materiais (vidros, cobertura, vigas).
+    Para cada uma das {num_fotos} foto(s) enviadas:
+    - Foto X: Identifique o cômodo e detalhe fragilidades físicas (forro leve, fiação exposta, móveis instáveis, vidros).
 
     3. Matriz Tática de Abrigo e Posicionamento Espacial
-    Especifique a LOCALIZAÇÃO EXATA no espaço físico da foto onde alunos e professores devem se abrigar:
-    - Vendavais / Microexplosões: Indique em qual parede interna, abaixo de qual peitoril ou em qual canto oposto às janelas as pessoas devem se posicionar.
-    - Enxurradas Rápidas: Indique qual escadaria ou pavimento superior utilizar.
-    - Granizo Severo: Indique os pontos protegidos por laje sólida.
+    Especifique a LOCALIZAÇÃO EXATA no espaço das fotos para proteção:
+    - Vendavais / Microexplosões: Posição exata abaixo de peitoris ou cantos opostos às janelas.
+    - Enxurradas Rápidas: Rotas de elevação vertical para pavimentos superiores.
+    - Granizo Severo: Áreas com proteção sob laje sólida de concreto.
 
     4. Plano de Ação Imediata (Primeiros 3 Minutos)
-    Instruções operacionais diretas para a equipe escolar em tópicos objetivos.
+    Ações práticas em tópicos para a equipe escolar.
     """
 
     prompt_detalhado = prompt_sistema.format(
@@ -358,7 +363,7 @@ def analisar_lote_escola(imagens_b64_list, nome_escola, municipio, dados_geo_exa
             {"role": "user", "content": content_payload}
         ],
         "model": "qwen/qwen3.6-27b",
-        "temperature": 0.1
+        "temperature": 0.0
     }
 
     try:
@@ -372,7 +377,7 @@ def analisar_lote_escola(imagens_b64_list, nome_escola, municipio, dados_geo_exa
         return f"⚠️ Erro de conexão com a API de Visão: {e}"
 
 # =========================================================
-# FLUXO PRINCIPAL
+# FLUXO PRINCIPAL DA APLICAÇÃO
 # =========================================================
 
 # 1. IDENTIFICAÇÃO DA ESCOLA
@@ -382,7 +387,7 @@ col_f1, col_f2 = st.columns(2)
 with col_f1:
     nome_escola = st.text_input("Nome Completo da Escola:", "EEEB Marquês de Herval")
 with col_f2:
-    municipio_input = st.text_input("Município / Estado:", "Porto Alegre / RS")
+    municipio_input = st.text_input("Município / Estado:", "Osório / RS")
 
 obs_gerais = st.text_area(
     "Observações Gerais da Estrutura ou Histórico de Eventos Extremos na Escola:",
@@ -391,11 +396,15 @@ obs_gerais = st.text_area(
 
 st.markdown("---")
 
-# 2. GEOLOCALIZAÇÃO DIRETA E DINÂMICA
+# 2. GEOLOCALIZAÇÃO DINÂMICA
 st.subheader("📍 2. Localização Geográfica de Precisão")
+st.caption("Ajuste as coordenadas ou utilize o endereço geocodificado automático do local.")
 
-lat_input = st.number_input("Latitude Coletada (GPS):", value=-30.059776, format="%.6f")
-lon_input = st.number_input("Longitude Coletada (GPS):", value=-51.220223, format="%.6f")
+col_c1, col_c2 = st.columns(2)
+with col_c1:
+    lat_input = st.number_input("Latitude Coletada:", value=-29.887200, format="%.6f")
+with col_c2:
+    lon_input = st.number_input("Longitude Coletada:", value=-50.264100, format="%.6f")
 
 geo_exata = obter_detalhes_geograficos_exatos(lat_input, lon_input)
 
@@ -414,7 +423,7 @@ st.markdown("---")
 
 # 3. UPLOAD DE FOTOS
 st.subheader("📸 3. Registros Fotográficos dos Ambientes da Escola")
-st.caption("Selecione fotos das salas de aula, corredores, ginásio, pátio externo e planta baixa. O sistema corrige automaticamente a orientação de fotos tiradas no celular.")
+st.caption("Selecione fotos das salas de aula, corredores, ginásio, pátio externo e planta baixa.")
 
 arquivos_uploaded = st.file_uploader(
     "Carregue as fotos dos ambientes da escola (Selecione vários arquivos JPG/PNG):", 
@@ -444,14 +453,14 @@ st.subheader("🛡️ 4. Laudo Técnico Tático & Plano de Contingência Escolar
 
 if arquivos_uploaded:
     if st.button("🚨 Gerar Plano Tático de Abrigo & Relatório PDF (IA)", type="primary"):
-        with st.spinner("Analisando fotos, purificando texto e compilando PDF oficial..."):
+        with st.spinner("Analisando fotos, purificando laudo e compilando PDF oficial..."):
             laudo_completo = analisar_lote_escola(lote_b64, nome_escola, municipio_input, geo_payload, obs_gerais)
             st.session_state["laudo_unificado"] = laudo_completo
             
-            # Gerar imagem do mapa para anexo
+            # Gera imagem do mapa estático para anexo no PDF
             mapa_bytes = gerar_imagem_mapa(lat_input, lon_input)
             
-            # Gerar PDF limpo
+            # Gera o PDF oficial do RS
             pdf_bytes = gerar_pdf_estilo_oficial_rs(
                 nome_escola, municipio_input, geo_payload, laudo_completo, fotos_raw_list, mapa_bytes
             )
