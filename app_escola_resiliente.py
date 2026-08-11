@@ -520,4 +520,19 @@ with c2:
         <ul>
             <li><b>Evitar:</b> Térreo, pátios rebaixados e subsolos.</li>
             <li><b>Ação:</b> Evacuação vertical imediata para o 2º pavimento.</li>
-            <li><b>Energia:</b> Desligar chave geral antes que a água atinja 
+            <li><b>Energia:</b> Desligar chave geral antes que a água atinja tomadas.</li>
+        </ul>
+    </div>
+    """, unsafe_allow_html=True)
+
+with c3:
+    st.markdown("""
+    <div class="card-seguro">
+        <h4>🛡️ Procedimento de Simulado</h4>
+        <ul>
+            <li><b>Frequência:</b> Realizar simulados a cada semestre.</li>
+            <li><b>Alarmes:</b> Definir sons diferentes para Evacuação vs. Abrigo.</li>
+            <li><b>Rotas:</b> Manter corredores livres de obstáculos.</li>
+        </ul>
+    </div>
+    """, unsafe_allow_html=True)
