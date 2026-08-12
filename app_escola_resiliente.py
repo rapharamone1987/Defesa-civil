@@ -1,10 +1,12 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import requests
 import base64
 import os
 import re
 import html
+import json
 from PIL import Image, ImageOps
 import io
 
@@ -72,7 +74,36 @@ def obter_groq_api_key():
 
 API_KEY_GROQ = obter_groq_api_key()
 
-# 4. Tratamento e Rotação EXIF de Fotos
+# 4. COMPONENTE DE GEOLOCALIZAÇÃO DO DISPOSITIVO (GPS VIA JAVASCRIPT)
+def capturar_gps_dispositivo():
+    js_code = """
+    <script>
+    function getLocation() {
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    const coords = {
+                        latitude: position.coords.latitude,
+                        longitude: position.coords.longitude
+                    };
+                    window.parent.postMessage({type: "streamlit:setComponentValue", value: coords}, "*");
+                },
+                (error) => {
+                    window.parent.postMessage({type: "streamlit:setComponentValue", value: {error: error.message}}, "*");
+                },
+                { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+            );
+        } else {
+            window.parent.postMessage({type: "streamlit:setComponentValue", value: {error: "Geolocalização não suportada"}}, "*");
+        }
+    }
+    getLocation();
+    </script>
+    <div style="padding: 5px; font-size: 12px; color: #666;">📡 Obtendo coordenadas de alta precisão do GPS do dispositivo...</div>
+    """
+    return components.html(js_code, height=45)
+
+# 5. Tratamento de Imagens e EXIF
 def otimizar_e_corrigir_orientacao(file_bytes, max_dim=1024, qualidade=80):
     try:
         img = Image.open(io.BytesIO(file_bytes))
@@ -89,8 +120,8 @@ def otimizar_e_corrigir_orientacao(file_bytes, max_dim=1024, qualidade=80):
         b64_raw = base64.b64encode(file_bytes).decode('utf-8')
         return img_raw, b64_raw, file_bytes
 
-# 5. Geocodificação Exata
-@st.cache_data(ttl=300)
+# 6. Geocodificação Reversa Dinâmica
+@st.cache_data(ttl=60)
 def obter_detalhes_geograficos_exatos(lat, lon):
     detalhes = {
         "endereco_completo": f"Latitude {lat:.6f}, Longitude {lon:.6f}",
@@ -119,7 +150,6 @@ def obter_detalhes_geograficos_exatos(lat, lon):
         
     return detalhes
 
-# Gerador do Mapa Estático para o PDF
 def gerar_imagem_mapa(lat, lon):
     try:
         url = f"https://static-maps.yandex.ru/1.x/?lang=pt_BR&ll={lon},{lat}&z=15&l=map&pt={lon},{lat},pm2rdm"
@@ -130,21 +160,19 @@ def gerar_imagem_mapa(lat, lon):
         pass
     return None
 
-# FUNÇÃO PURIFICADORA DE TEXTO
 def purificar_texto_laudo(texto_bruto):
     if not texto_bruto:
         return ""
     
-    # Elimina texto de raciocínio prévio em inglês
-    match_inicio = re.search(r'(1\.\s*Diagnóstico\s*Geográfico.*)', texto_bruto, re.DOTALL | re.IGNORECASE)
-    if match_inicio:
-        texto_bruto = match_inicio.group(1)
+    pos_inicio = re.search(r'(1\.\s*Diagnóstico\s*Geográfico.*)', texto_bruto, re.DOTALL | re.IGNORECASE)
+    if pos_inicio:
+        texto_bruto = pos_inicio.group(1)
     else:
-        match_alt = re.search(r'(###?\s*1\..*)', texto_bruto, re.DOTALL | re.IGNORECASE)
-        if match_alt:
-            texto_bruto = match_alt.group(1)
+        pos_alt = re.search(r'(###?\s*1\..*)', texto_bruto, re.DOTALL | re.IGNORECASE)
+        if pos_alt:
+            texto_bruto = pos_alt.group(1)
 
-    texto_bruto = re.sub(r'(?i)(analyze user input|deconstruct|thinking process|draft).*?\n\n', '', texto_bruto, flags=re.DOTALL)
+    texto_bruto = re.sub(r'(?i)(analyze|deconstruct|thinking process|draft).*?\n\n', '', texto_bruto, flags=re.DOTALL)
     
     texto_linhas = texto_bruto.split('\n')
     linhas_processadas = []
@@ -169,7 +197,7 @@ def purificar_texto_laudo(texto_bruto):
         
     return "\n".join(linhas_processadas)
 
-# 6. GERADOR DE PDF
+# 7. GERADOR DE PDF
 def gerar_pdf_estilo_oficial_rs(nome_escola, municipio, dados_geo, laudo_texto, fotos_bytes, mapa_bytes):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -203,7 +231,6 @@ def gerar_pdf_estilo_oficial_rs(nome_escola, municipio, dados_geo, laudo_texto, 
 
     story = []
 
-    # Banner Superior
     banner_data = [[Paragraph("<b>DEFESA CIVIL — RELATÓRIO TÁTICO ESCOLA SEGURA (RS)</b>", style_header_title)]]
     t_banner = Table(banner_data, colWidths=[540])
     t_banner.setStyle(TableStyle([
@@ -224,7 +251,6 @@ def gerar_pdf_estilo_oficial_rs(nome_escola, municipio, dados_geo, laudo_texto, 
     story.append(t_faixa)
     story.append(Spacer(1, 10))
 
-    # Identificação Geral
     story.append(Paragraph("<b>1. DADOS DE IDENTIFICAÇÃO E LOCALIZAÇÃO DO PONTO EXATO</b>", style_sec_title))
     
     dados_id = [
@@ -244,7 +270,6 @@ def gerar_pdf_estilo_oficial_rs(nome_escola, municipio, dados_geo, laudo_texto, 
     story.append(t_id)
     story.append(Spacer(1, 10))
 
-    # Mapa no PDF
     if mapa_bytes:
         story.append(Paragraph("<b>MAPA DE LOCALIZAÇÃO DO TERRENO</b>", style_sec_title))
         img_mapa_io = io.BytesIO(mapa_bytes)
@@ -252,7 +277,6 @@ def gerar_pdf_estilo_oficial_rs(nome_escola, municipio, dados_geo, laudo_texto, 
         story.append(rl_mapa)
         story.append(Spacer(1, 10))
 
-    # Diagnóstico Técnico
     story.append(Paragraph("<b>2. DIAGNÓSTICO DE RISCO E RECOMENDAÇÕES TÁTICAS DE ABRIGO</b>", style_sec_title))
     
     texto_purificado = purificar_texto_laudo(laudo_texto)
@@ -279,7 +303,6 @@ def gerar_pdf_estilo_oficial_rs(nome_escola, municipio, dados_geo, laudo_texto, 
             story.append(Paragraph(texto_limpo_plano, style_cell_body))
             story.append(Spacer(1, 3))
 
-    # Fotos Vistoriadas no PDF
     if fotos_bytes:
         story.append(Spacer(1, 10))
         story.append(Paragraph("<b>3. REGISTROS FOTOGRÁFICOS DOS AMBIENTES AUDITADOS</b>", style_sec_title))
@@ -315,7 +338,7 @@ def gerar_pdf_estilo_oficial_rs(nome_escola, municipio, dados_geo, laudo_texto, 
     buffer.seek(0)
     return buffer
 
-# 7. MOTOR IA
+# 8. MOTOR IA COM MODELO LLAMA-3.2-VISION
 def analisar_lote_escola(imagens_b64_list, nome_escola, municipio, dados_geo_exatos, obs_gerais):
     if not API_KEY_GROQ:
         return "⚠️ Chave `GROQ_API_KEY` não foi encontrada nos Secrets do Streamlit."
@@ -330,14 +353,14 @@ def analisar_lote_escola(imagens_b64_list, nome_escola, municipio, dados_geo_exa
     Você é um Engenheiro Sênior da Defesa Civil do Rio Grande do Sul e está emitindo um LAUDO TÉCNICO OFICIAL DE SEGURANÇA ESCOLAR.
 
     REGRAS INVIOLÁVEIS:
-    1. Escreva a resposta DIRETA em Português do Brasil.
-    2. NUNCA gere introduções em inglês, rascunhos, análises do prompt ou frases como "Analyze User Input".
-    3. Comece a resposta IMEDIATAMENTE pelo título "1. Diagnóstico Geográfico da Microlocalização Exata".
+    1. Escreva a resposta EXCLUSIVAMENTE em Português do Brasil.
+    2. NUNCA inclua rascunhos, pensamentos, introduções em inglês ou análises do prompt.
+    3. Comece a resposta IMEDIATAMENTE pela linha: "1. Diagnóstico Geográfico da Microlocalização Exata".
 
-    ESTRUTURA DA RESPOSTA:
+    ESTRUTURA OBRIGATÓRIA DA RESPOSTA:
 
     1. Diagnóstico Geográfico da Microlocalização Exata
-    Avalie a vulnerabilidade geotécnica e hidrológica das coordenadas ({coords}) e altitude ({altitude}).
+    Avalie a vulnerabilidade geotécnica e hidrológica das coordenadas ({coords}) e altitude ({altitude}). Especifique os riscos de enxurradas e vendavais no município.
 
     2. Auditoria Detalhada dos Ambientes Anexados
     Para cada uma das {num_fotos} foto(s) enviadas:
@@ -346,7 +369,7 @@ def analisar_lote_escola(imagens_b64_list, nome_escola, municipio, dados_geo_exa
     3. Matriz Tática de Abrigo e Posicionamento Espacial
     Especifique a LOCALIZAÇÃO EXATA no espaço das fotos para proteção:
     - Vendavais / Microexplosões: Posição exata abaixo de peitoris ou cantos opostos às janelas.
-    - Enxurradas Rápidas: Rotas de elevação vertical para pavimentos superiores.
+    - Enxurradas Rápidas: Rotas de elevação vertical para pavimentos superiores ou áreas elevadas.
     - Granizo Severo: Áreas com proteção sob laje sólida de concreto.
 
     4. Plano de Ação Imediata (Primeiros 3 Minutos)
@@ -379,8 +402,9 @@ def analisar_lote_escola(imagens_b64_list, nome_escola, municipio, dados_geo_exa
             {"role": "system", "content": prompt_detalhado},
             {"role": "user", "content": content_payload}
         ],
-        "model": "qwen/qwen3.6-27b",
-        "temperature": 0.0
+        "model": "llama-3.2-90b-vision-preview",
+        "temperature": 0.1,
+        "max_tokens": 2048
     }
 
     try:
@@ -388,6 +412,13 @@ def analisar_lote_escola(imagens_b64_list, nome_escola, municipio, dados_geo_exa
         if res.status_code == 200:
             conteudo = res.json()['choices'][0]['message']['content']
             return purificar_texto_laudo(conteudo)
+        elif res.status_code == 404:
+            payload["model"] = "llama-3.2-11b-vision-instruct"
+            res_fb = requests.post(url, json=payload, headers=headers, timeout=40)
+            if res_fb.status_code == 200:
+                conteudo = res_fb.json()['choices'][0]['message']['content']
+                return purificar_texto_laudo(conteudo)
+            return f"⚠️ Erro no processamento da IA: {res_fb.text}"
         else:
             return f"⚠️ Erro no processamento da IA (Código HTTP {res.status_code}): {res.text}"
     except Exception as e:
@@ -402,40 +433,58 @@ st.subheader("📋 1. Identificação do Estabelecimento de Ensino")
 
 col_f1, col_f2 = st.columns(2)
 with col_f1:
-    nome_escola = st.text_input("Nome Completo da Escola:", "EEEB Marquês de Herval")
+    nome_escola = st.text_input("Nome Completo da Escola:", "")
 with col_f2:
-    municipio_input = st.text_input("Município / Estado:", "Osório / RS")
+    municipio_input = st.text_input("Município / Estado:", "")
 
 obs_gerais = st.text_area(
     "Observações Gerais da Estrutura ou Histórico de Eventos Extremos na Escola:",
     value="",
-    placeholder="Informe aqui se houver histórico de alagamentos, problemas no telhado, árvores de grande porte no entorno, etc."
+    placeholder="Informe se houver histórico de alagamentos, problemas no telhado, árvores de grande porte no entorno, etc."
 )
 
 st.markdown("---")
 
-# 2. GEOLOCALIZAÇÃO DINÂMICA
+# 2. GEOLOCALIZAÇÃO DINÂMICA VIA DISPOSITIVO DO USUÁRIO
 st.subheader("📍 2. Localização Geográfica de Precisão")
-st.caption("Ajuste as coordenadas ou utilize o endereço geocodificado automático do local.")
+st.caption("A posição abaixo é capturada diretamente do GPS do seu dispositivo em tempo real.")
+
+dados_gps = capturar_gps_dispositivo()
+
+# Valores padrão inicializados vazios
+lat_val = 0.0
+lon_val = 0.0
+
+if dados_gps and isinstance(dados_gps, dict):
+    if "latitude" in dados_gps and "longitude" in dados_gps:
+        lat_val = float(dados_gps["latitude"])
+        lon_val = float(dados_gps["longitude"])
 
 col_c1, col_c2 = st.columns(2)
 with col_c1:
-    lat_input = st.number_input("Latitude Coletada:", value=-29.887200, format="%.6f")
+    lat_input = st.number_input("Latitude Coletada (GPS):", value=lat_val, format="%.6f")
 with col_c2:
-    lon_input = st.number_input("Longitude Coletada:", value=-50.264100, format="%.6f")
+    lon_input = st.number_input("Longitude Coletada (GPS):", value=lon_val, format="%.6f")
 
-geo_exata = obter_detalhes_geograficos_exatos(lat_input, lon_input)
+if lat_input != 0.0 and lon_input != 0.0:
+    geo_exata = obter_detalhes_geograficos_exatos(lat_input, lon_input)
 
-st.info(f"📌 **Localização Geocodificada:** {geo_exata['endereco_completo']}")
-st.success(f"🏔️ **Altitude Exata no Terreno:** {geo_exata['altitude_m']}")
+    st.info(f"📌 **Localização Geocodificada:** {geo_exata['endereco_completo']}")
+    st.success(f"🏔️ **Altitude Exata no Terreno:** {geo_exata['altitude_m']}")
 
-df_mapa = pd.DataFrame({"lat": [lat_input], "lon": [lon_input]})
-st.map(df_mapa, zoom=15)
+    df_mapa = pd.DataFrame({"lat": [lat_input], "lon": [lon_input]})
+    st.map(df_mapa, zoom=15)
 
-geo_payload = {
-    "endereco": f"Lat {lat_input:.6f}, Lon {lon_input:.6f} ({geo_exata['endereco_completo']})",
-    "altitude": geo_exata['altitude_m']
-}
+    geo_payload = {
+        "endereco": f"Lat {lat_input:.6f}, Lon {lon_input:.6f} ({geo_exata['endereco_completo']})",
+        "altitude": geo_exata['altitude_m']
+    }
+else:
+    st.warning("⚠️ Aguardando permissão de acesso ao GPS do seu navegador/dispositivo para obter a localização exata.")
+    geo_payload = {
+        "endereco": "Coordenadas não fornecidas pelo GPS",
+        "altitude": "Altitude não calculada"
+    }
 
 st.markdown("---")
 
@@ -471,14 +520,12 @@ st.subheader("🛡️ 4. Laudo Técnico Tático & Plano de Contingência Escolar
 
 if arquivos_uploaded:
     if st.button("🚨 Gerar Plano Tático de Abrigo & Relatório PDF (IA)", type="primary"):
-        with st.spinner("Analisando fotos, purificando laudo e compilando PDF oficial..."):
+        with st.spinner("Analisando fotos com o Llama-3.2 Vision e gerando relatório limpo..."):
             laudo_completo = analisar_lote_escola(lote_b64, nome_escola, municipio_input, geo_payload, obs_gerais)
             st.session_state["laudo_unificado"] = laudo_completo
             
-            # Gera imagem do mapa estático
-            mapa_bytes = gerar_imagem_mapa(lat_input, lon_input)
+            mapa_bytes = gerar_imagem_mapa(lat_input, lon_input) if lat_input != 0.0 else None
             
-            # Gera o PDF oficial do RS com purificação de HTML
             pdf_bytes = gerar_pdf_estilo_oficial_rs(
                 nome_escola, municipio_input, geo_payload, laudo_completo, fotos_raw_list, mapa_bytes
             )
@@ -522,7 +569,7 @@ with c2:
         <h4>🌊 Enxurradas Rápidas</h4>
         <ul>
             <li><b>Evitar:</b> Térreo, pátios rebaixados e subsolos.</li>
-   <li><b>Ação:</b> Evacuação vertical imediata para o 2º pavimento.</li>
+            <li><b>Ação:</b> Evacuação vertical imediata para o 2º pavimento.</li>
             <li><b>Energia:</b> Desligar chave geral antes que a água atinja tomadas.</li>
         </ul>
     </div>
