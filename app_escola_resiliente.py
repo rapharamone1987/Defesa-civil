@@ -135,6 +135,7 @@ def purificar_texto_laudo(texto_bruto):
     if not texto_bruto:
         return ""
     
+    # Elimina texto de raciocínio prévio em inglês
     match_inicio = re.search(r'(1\.\s*Diagnóstico\s*Geográfico.*)', texto_bruto, re.DOTALL | re.IGNORECASE)
     if match_inicio:
         texto_bruto = match_inicio.group(1)
@@ -474,8 +475,10 @@ if arquivos_uploaded:
             laudo_completo = analisar_lote_escola(lote_b64, nome_escola, municipio_input, geo_payload, obs_gerais)
             st.session_state["laudo_unificado"] = laudo_completo
             
+            # Gera imagem do mapa estático
             mapa_bytes = gerar_imagem_mapa(lat_input, lon_input)
             
+            # Gera o PDF oficial do RS com purificação de HTML
             pdf_bytes = gerar_pdf_estilo_oficial_rs(
                 nome_escola, municipio_input, geo_payload, laudo_completo, fotos_raw_list, mapa_bytes
             )
@@ -519,7 +522,7 @@ with c2:
         <h4>🌊 Enxurradas Rápidas</h4>
         <ul>
             <li><b>Evitar:</b> Térreo, pátios rebaixados e subsolos.</li>
-            <li><b>Ação:</b> Evacuação vertical imediata para o 2º pavimento.</li>
+   <li><b>Ação:</b> Evacuação vertical imediata para o 2º pavimento.</li>
             <li><b>Energia:</b> Desligar chave geral antes que a água atinja tomadas.</li>
         </ul>
     </div>
